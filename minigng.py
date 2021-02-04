@@ -37,7 +37,7 @@ class Edge:
 class MiniGNG:
     def __init__(self, n_epochs=50, sigma=100, max_units=100, eps_b=.2,
             eps_n=.006, max_edge_age=50, alpha=.5, d=.995,
-            untangle=False, min_net_size=3, random_sample=True):
+            untangle=False, min_net_size=3, shuffle=True):
         """
         Parameters
         ----------
@@ -74,13 +74,16 @@ class MiniGNG:
         min_net_size : int (default=3)
             If untagle=True then separate networks are not allowed to reconnect.
             That, unless their size is lower or equal than min_net_size.
+
+        shuffle : boolean (default=True)
+            Whether to shuffles the training data every epoch.
         """
 
         self.units = []
         self.edges = []
 
         self.n_epochs = n_epochs
-        self.random_sample = random_sample
+        self.shuffle = shuffle
         self.sigma = sigma
         self.max_units = max_units
         self.eps_b = eps_b
@@ -122,7 +125,7 @@ class MiniGNG:
         max_units = self.max_units
 
         signals = xs
-        if self.random_sample:
+        if self.shuffle:
             size = len(xs)
             signals = xs[np.random.choice(np.arange(size), size)]
 
@@ -182,7 +185,7 @@ class MiniGNG:
             if not ab_edge is None:
                 ab_edge.age = 0
 
-            else:
+            elif not self.untangle or self.no_curling(unit_a, unit_b):
                 unit_a.neighbors.add(unit_b)
                 unit_b.neighbors.add(unit_a)
                 self.edges.append(Edge(unit_a, unit_b))
@@ -223,6 +226,31 @@ class MiniGNG:
             # 9. Decrease all error variables by multiplying them with a constant d.
             for u in self.units:
                 u.error *= d
+
+
+    def no_curling(self, a, b):
+        """
+        Checks if connecting units a and b would 'curl' the network into a
+        high-dimensional graph (partially).
+        """
+        bridges = a.neighbors.intersection(b.neighbors)
+
+        if len(bridges) == 2:
+            # no curling if the two common neighbors are not connected.
+            x, y = bridges
+            return len(x.neighbors.intersection(y.neighbors)) == 0
+
+        elif len(bridges) == 1:
+            # no curling if there are less than 2 common neighbors between
+            # 'a' and 'x', and between 'b' and 'x'.
+            [x] = bridges
+            xn = x.neighbors
+            an = a.neighbors
+            bn = b.neighbors
+
+            return (len(an.intersection(xn)) < 2) and (len(bn.intersection(xn)) < 2)
+
+        return False
 
 
     def save_gml(self, filename):
