@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.cfg
+*.gml
+
+bin/
+include/
+lib/
+lib64
+share/
