@@ -253,7 +253,30 @@ class MiniGNG:
         return False
 
 
+    def save_vna(self, filename):
+        """
+        Saves graph (GNG model) to .vna format (which can then be loaded into, e.g., Gephi).
+        """
+
+        nodes = '*node data\nID name\n'
+        nodes += '\n'.join([f'{i} {i}' for i, _ in enumerate(self.units)])
+
+        edges = '*tie data\nfrom to strength\n'
+        edges += '\n'.join([
+            f'{self.units.index(e.source)} {self.units.index(e.target)} 1'
+            for e in self.edges])
+
+        graph = f'{nodes}\n{edges}'
+
+        with open(filename, 'w') as out:
+            out.write(graph.strip())
+
+
     def save_gml(self, filename):
+        """
+        Saves graph (GNG model) to .gml format (which can then be loaded into, e.g., Gephi).
+        """
+
         nodes = [
         """
         node
