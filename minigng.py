@@ -43,7 +43,7 @@ class Edge:
 class MiniGNG:
     def __init__(self, n_epochs=50, sigma=100, max_units=100, eps_b=.2,
             eps_n=.006, max_edge_age=50, alpha=.5, d=.995,
-            untangle=False, min_net_size=3, shuffle=True, sample=1.0):
+            untangle=False, untangle_net_size=3, shuffle=True, sample=1.0):
         """
         Parameters
         ----------
@@ -77,9 +77,10 @@ class MiniGNG:
             Whether to apply the untangling mechanism, i.e., avoids creating too
             many edges. This may help create better cluster separations.
 
-        min_net_size : int (default=3)
-            If untagle=True then separate networks are not allowed to reconnect.
-            That, unless their size is lower or equal than min_net_size.
+        untangle_net_size : int (default=3)
+            States the size of the network the first or second winning units need
+            to belong to, in order to allow them to connect (see step 6). 
+            Used only when untangle=True. Set to 0 to skip this check.
 
         shuffle : boolean (default=True)
             Whether to shuffles the training data every epoch.
@@ -101,12 +102,12 @@ class MiniGNG:
         self.alpha = alpha
         self.d = d
         self.untangle = untangle
-        self.min_net_size = min_net_size
-        self.signal_counter = 0
-
+        self.untangle_net_size = untangle_net_size
         self.shuffle = shuffle
         self.sample = sample
+        
         self.epsilon = .0   # anomaly threshold.
+        self.signal_counter = 0
         
 
     def init_model(self, xs):
@@ -246,7 +247,7 @@ class MiniGNG:
             if not ab_edge is None:
                 ab_edge.age = 0
 
-            elif not self.untangle or self.no_curling2(unit_a, unit_b):
+            elif not self.untangle or self.no_curling(unit_a, unit_b):
                 unit_a.neighbors.add(unit_b)
                 unit_b.neighbors.add(unit_a)
                 self.edges.append(Edge(unit_a, unit_b))
@@ -319,17 +320,19 @@ class MiniGNG:
         open_nodes = node.neighbors
         closed_nodes = set()        
         closed_nodes.add(node)
+        n_nodes = 1
 
-        while len(open_nodes) > 0 and len(closed_nodes) <= size:
+        while len(open_nodes) > 0 and n_nodes <= size:
             closed_nodes = closed_nodes | open_nodes
-            aux = set()
-            for n in open_nodes:
-                aux = aux | {ne for ne in n.neighbors if not ne in closed_nodes}
-                
-            open_nodes = aux
-        
-        n_nodes = len(closed_nodes)
+            n_nodes = len(closed_nodes)
 
+            if n_nodes <= size:
+                aux = set()
+                for n in open_nodes:
+                    aux = aux | {ne for ne in n.neighbors if not ne in closed_nodes}
+                    
+                open_nodes = aux
+        
         if n_nodes < size: return -1
         elif n_nodes > size: return 1
         else: return 0
@@ -346,12 +349,14 @@ class MiniGNG:
 
         while len(open_nodes) > 0 and not exists:
             exists = b in open_nodes
-            closed_nodes = closed_nodes | open_nodes
-            aux = set()
-            for n in open_nodes:
-                aux = aux | {ne for ne in n.neighbors if not ne in closed_nodes}
-                
-            open_nodes = aux
+
+            if not exists:
+                closed_nodes = closed_nodes | open_nodes
+                aux = set()
+                for n in open_nodes:
+                    aux = aux | {ne for ne in n.neighbors if not ne in closed_nodes}
+                    
+                open_nodes = aux
             
         return exists
 
@@ -361,14 +366,16 @@ class MiniGNG:
         Checks if connecting units a and b would 'curl' the network into a
         high-dimensional graph (partially).
         """
-        bridges = a.neighbors.intersection(b.neighbors)
 
-        if len(bridges) == 2:
+        bridges = a.neighbors & b.neighbors
+        n_bridges = len(bridges)
+
+        if n_bridges == 2:
             # no curling if the two common neighbors are not connected.
             x, y = bridges
             return len(x.neighbors.intersection(y.neighbors)) == 0
 
-        elif len(bridges) == 1:
+        elif n_bridges == 1:
             # no curling if there are less than 2 common neighbors between
             # 'a' and 'x', and between 'b' and 'x'.
             [x] = bridges
@@ -376,7 +383,15 @@ class MiniGNG:
             an = a.neighbors
             bn = b.neighbors
 
-            return (len(an.intersection(xn)) < 2) and (len(bn.intersection(xn)) < 2)
+            return len(an & xn) < 2 and len(bn & xn) < 2 and len(xn) <= 5
+
+        elif n_bridges == 0:
+            has_min_size = (
+                self.untangle_net_size <= 0 or
+                self.net_size_compare(b, self.untangle_net_size) < 1
+            )
+
+            return has_min_size and not self.exists_path(a, b)
 
         return False
 
@@ -391,7 +406,7 @@ class MiniGNG:
             - 'a' and 'b' belong to different networks.
         """
 
-        bridges = a.neighbors.intersection(b.neighbors)
+        bridges = a.neighbors & b.neighbors
         n_bridges = len(bridges)
 
         if n_bridges == 2:
@@ -400,7 +415,7 @@ class MiniGNG:
             return len(x.neighbors.intersection(y.neighbors)) == 0
 
         elif n_bridges == 1:
-            max_steps = 5
+            max_steps = 3
             n_nodes, [bridge] = len(self.units), bridges
             xi = self.units.index(bridge)
             ai = self.units.index(a)

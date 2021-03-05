@@ -1,5 +1,16 @@
 # Mini GNG
-A simple version of the Growing Neural Gas algorithm by [Firtzke (1995)](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.648.1905&rep=rep1&type=pdf).
+A simple version of the Growing Neural Gas algorithm by [Firtzke (1995)](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.648.1905&rep=rep1&type=pdf) -- with some updates based on a submitted paper. 
+
+## Requirements
+### Mingng
+- Numpy
+
+### Example
+- Scipy
+- Pandas
+- Matplotlib
+- Networkx
+- Graphviz
 
 ## Example use
 ```python
@@ -14,3 +25,14 @@ gng = MiniGNG(max_units=40, n_epochs=30)
 gng.fit(training)
 gng.save_gml('iris.gml')
 ```
+
+## Screenshots
+
+MNIST dataset.
+
+![alt text](img/mnist.png)
+
+
+Fashion MNIST dataset.
+
+![alt text](img/fashion_mnist.png)
