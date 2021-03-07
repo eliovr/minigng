@@ -383,7 +383,7 @@ class MiniGNG:
             an = a.neighbors
             bn = b.neighbors
 
-            return len(an & xn) < 2 and len(bn & xn) < 2 and len(xn) <= 5
+            return len(an & xn) < 2 and len(bn & xn) < 2 and len(xn) <= 6
 
         elif n_bridges == 0:
             has_min_size = (
