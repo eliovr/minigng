@@ -8,9 +8,10 @@ import networkx as nx
 
 # load data.
 df = pd.read_csv("/path/to/mnist_train.csv", header=None)
-training = df.to_numpy(dtype=np.float32)[:, 1:]
+X = df.to_numpy(dtype=np.float32)[:, 1:]
+y = df[0].to_numpy()
 
-# traing GNG.
+# init GNG.
 gng = MiniGNG(
     max_units=150, 
     n_epochs=25, 
@@ -19,20 +20,16 @@ gng = MiniGNG(
     untangle=True, 
     untangle_net_size=0)
 
-gng.fit(training)
+# Traing GNG.
+gng.fit(X, y=y)
 
-# get unit ids for each data sample.
-predictions = np.array(gng.transform(training))
-
-# assign a label to each unit given a majority vote (scipy mode).
-y = df[0].to_numpy()
-unit_ids = range(len(gng.units))
-nodes = {i: stats.mode(y[predictions == i]) for i in unit_ids}
-labels = {k: v.mode[0] for k, v in nodes.items()}
+predictions, unit_ids = gng.predict(X, return_unit_ids=True)
+labels = dict(zip(unit_ids, predictions))
 
 # plot the graph using Networkx and Graphviz.
+edge_weight = lambda e: np.linalg.norm(e.source.prototype - e.target.prototype)
 nodes = [i for i, _ in enumerate(gng.units)]
-edges = [(gng.units.index(e.source), gng.units.index(e.target)) for e in gng.edges]
+edges = [(gng.units.index(e.source), gng.units.index(e.target), {'weight': edge_weight(e)}) for e in gng.edges]
 
 G = nx.Graph()
 G.add_nodes_from(nodes)

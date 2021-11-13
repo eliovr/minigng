@@ -4,13 +4,17 @@ A simple version of the Growing Neural Gas algorithm by [Firtzke (1995)](http://
 ## Requirements
 ### Mingng
 - Numpy
-- Scipy
 
 ### Example
 - Pandas
 - Matplotlib
 - Networkx
 - Graphviz
+
+## Install
+```bash
+pip install git+https://github.com/eliovr/minigng.git
+```
 
 ## Example use
 ```python
@@ -19,11 +23,23 @@ import numpy as np
 from minigng import MiniGNG
 
 df = pd.read_csv("/path/to/iris.csv", header=1)
-training = df.drop(df.columns[-1], 1).to_numpy(dtype=np.float32)
+X = df.drop(df.columns[-1], 1).to_numpy()
+y = df[4].to_numpy()
 
+# For clustering just provide 'X'.
 gng = MiniGNG(max_units=40, n_epochs=30)
-gng.fit(training)
-gng.save_gml('iris.gml')
+gng.fit(X)
+gng.save_gml('iris-clustering.gml')
+
+# For classification provide also 'y'.
+gng = MiniGNG(max_units=40, n_epochs=30)
+gng.fit(X, y)
+gng.save_gml('iris-classification.gml')
+
+# For online training.
+gng = MiniGNG(max_units=40, n_epochs=30)
+for x in X:
+    gng.partial_fit(X)
 ```
 
 ## Screenshots
