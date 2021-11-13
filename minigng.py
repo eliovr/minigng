@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import norm, multivariate_normal
+from scipy import stats # norm, multivariate_normal
 import random
 
 
@@ -12,13 +12,26 @@ class Unit:
         self.count = 0
         self.var = None # variance.
         self.cov = None # covariance.
-        self.labels = {}
-
-    def distance_to(self, vector):
-        return np.linalg.norm(vector - self.prototype)
+        self.labels = None
 
     def move_towards(self, vector, eps):
         self.prototype += (vector - self.prototype) * eps
+
+    def get_label(self):
+        """
+        Returns this unit's label with the highest probability.
+        Works only when GNG is used ina supervised manner (by providing 'y' to 'fit').
+        """
+
+        label = -1
+        max_p = 0
+
+        for k, v in self.labels.items():
+            if max_p < v:
+                label = k
+                max_p = v
+
+        return label
 
 
 class Edge:
@@ -90,9 +103,6 @@ class MiniGNG:
             between 0 and 1 (where 1 = the entire dataset).
         """
 
-        self.units = []
-        self.edges = []
-
         self.n_epochs = n_epochs
         self.sigma = sigma
         self.max_units = max_units
@@ -106,14 +116,66 @@ class MiniGNG:
         self.shuffle = shuffle
         self.sample = sample
         
-        self.epsilon = .0   # anomaly threshold.
+        self.units = []
+        self.edges = []
         self.signal_counter = 0
-        
+        self.classes = None
 
-    def init_model(self, xs):
-        n = len(xs) - 1
-        a = Unit(xs[random.randint(0, n)])
-        b = Unit(xs[random.randint(0, n)])
+
+    def get_params(self, deep=True):
+        """
+        Get parameters (adapted from scikit-learn's BaseEstimator class).
+        Useful for running tests using scikit-learn.
+        """
+        param_names = ['n_epochs', 'sigma', 'max_units', 'eps_b', 'eps_n', 'max_edge_age',
+            'alpha', 'd', 'untangle', 'untangle_net_size', 'shuffle', 'sample']
+
+        out = dict()
+        for key in param_names:
+            value = getattr(self, key)
+            if deep and hasattr(value, 'get_params'):
+                deep_items = value.get_params().items()
+                out.update((key + '__' + k, val) for k, val in deep_items)
+            out[key] = value
+        return out
+
+
+    def set_params(self, **params):
+        """
+        Set the parameters (taken from scikit-learn's BaseEstimator class).
+        Useful for running tests using scikit-learn.
+        """
+        from collections import defaultdict
+
+        if not params:
+            return self
+        valid_params = self.get_params(deep=True)
+
+        nested_params = defaultdict(dict)  # grouped by prefix
+        for key, value in params.items():
+            key, delim, sub_key = key.partition('__')
+            if key not in valid_params:
+                raise ValueError('Invalid parameter %s for estimator %s. '
+                                 'Check the list of available parameters '
+                                 'with `estimator.get_params().keys()`.' %
+                                 (key, self))
+
+            if delim:
+                nested_params[key][sub_key] = value
+            else:
+                setattr(self, key, value)
+                valid_params[key] = value
+
+        for key, sub_params in nested_params.items():
+            valid_params[key].set_params(**sub_params)
+
+        return self
+
+
+    def init_model(self, X):
+        n = len(X) - 1
+        a = Unit(X[random.randint(0, n)])
+        b = Unit(X[random.randint(0, n)])
 
         a.neighbors.add(b)
         b.neighbors.add(a)
@@ -121,76 +183,68 @@ class MiniGNG:
         self.edges.append(Edge(a, b))
 
 
-    def transform(self, xs, update_model_stats=False):
+    def predict(self, X):
         if len(self.units) == 0:
             return None
 
         else:
             groups = {i: [] for i, _ in enumerate(self.units)}
-            prototypes = np.array([u.prototype for u in self.units])
-            labels = []
+            prototypes = np.array([u.prototype for u in self.units if u.count > 0])
+            unit_ids = []
+            labels = []     
 
-            for i, x in enumerate(xs):
+            for i, x in enumerate(X):
                 dists = np.linalg.norm(x - prototypes, axis=1)
                 unit_id = np.argmin(dists)
                 groups[unit_id].append(i)
-                labels.append(unit_id)
+                unit_ids.append(unit_id)
+                unit = self.units[unit_id]
 
-            if update_model_stats:
-                for k, v in groups.items():
-                    unit = self.units[k]
-                    points_in_unit = xs[v]
-                    unit.count = len(points_in_unit)
-                    unit.var = np.var(points_in_unit, axis=0)
-                #     unit.cov = np.cov(points_in_unit, rowvar=False)
+                if unit.labels is not None:
+                    labels.append(unit.get_label())
 
-                # ps = [self.multinorm_pdf(x) for x in xs]
-                # self.epsilon = np.min([p for p in ps if p > 0])
-
-            return labels
+            return unit_ids, labels
+            # return np.array(labels)
 
 
-    def norm_pdf(self, x):
-        prototypes = np.array([u.prototype for u in self.units])
-        dists = np.linalg.norm(x - prototypes, axis=1)
-        unit_id = np.argmin(dists)
-        unit = self.units[unit_id]
-        mean, std = unit.prototype, np.sqrt(unit.var)
-        p_x = [norm.pdf(v, u, s) for (v, u, s) in zip(x, mean, std)]
-        
-        return np.prod(p_x)
-
-
-    def multinorm_pdf(self, x):
-        prototypes = np.array([u.prototype for u in self.units])
-        dists = np.linalg.norm(x - prototypes, axis=1)
-        unit_id = np.argmin(dists)
-        unit = self.units[unit_id]
-        mean, cov = unit.prototype, unit.cov
-        
-        try:
-            return multivariate_normal.pdf(x, mean, cov)
-        except:
-            return float('nan')
-
-
-    def is_anomaly(self, x):
-        return self.norm_pdf(x) < self.epsilon
-
-
-    def fit(self, xs):
+    def fit(self, X, y=None):
+        # Train GNG
         for _ in range(0, self.n_epochs):
-            self.partial_fit(xs)
+            self.partial_fit(X)
+        
+        # Update model with density, variance and labels (if 'y' is given)
+        groups = {i: [] for i, _ in enumerate(self.units)}
+        prototypes = np.array([u.prototype for u in self.units])
+        labels = []
+
+        for i, x in enumerate(X):
+            dists = np.linalg.norm(x - prototypes, axis=1)
+            unit_id = np.argmin(dists)
+            groups[unit_id].append(i)
+            labels.append(unit_id)
+
+        for k, v in groups.items():
+            unit = self.units[k]
+            points_in_unit = X[v]
+
+            unit.count = len(points_in_unit)
+            # unit.var = np.var(points_in_unit, axis=0)
             
+            if y is not None:
+                unique, counts = np.unique(y[v], return_counts=True)
+                unit.labels = dict(zip(unique, counts / unit.count))
 
-    def fit_transform(self, xs):
-        self.fit(xs)
-        return self.transform(xs, update_model_stats=True)
+        self.classes = np.sort(np.unique(y))
+        
+
+    def fit_predict(self, X):
+        self.fit(X)
+        return self.predict(X)
 
 
-    def partial_fit(self, xs):
+    def partial_fit(self, X):
         if len(self.units) == 0:
-            self.init_model(xs)
+            self.init_model(X)
 
         sigma = self.sigma
         alpha = self.alpha
@@ -200,13 +254,13 @@ class MiniGNG:
         max_edge_age = self.max_edge_age
         max_units = self.max_units
 
-        signals = xs
+        signals = X
 
         if self.shuffle or self.sample < 1.0:
-            size = len(xs)
+            size = len(X)
             n_samples = size
             if self.sample < 1.0: n_samples = int(size * self.sample)
-            signals = xs[np.random.choice(size, n_samples)]
+            signals = X[np.random.choice(size, n_samples)]
 
         for signal in signals:
             self.signal_counter += 1
@@ -310,6 +364,13 @@ class MiniGNG:
                 u.error *= d
 
 
+    def score(self, X, y):
+        _, predictions = self.predict(X)
+        diff = predictions - y
+        score = np.count_nonzero(diff) / len(y)
+        return 1 - score
+
+
     def net_size_compare(self, node, size):
         """
         Checks the size of the network a node belongs to, against the parameter size.
@@ -398,6 +459,8 @@ class MiniGNG:
 
     def no_curling2(self, a, b):
         """
+        NOT CURRENTLY USED. LEFT HERE FOR INTERNAL REFERENCE.
+
         Another curl check version with three rules. No curling takes place if:
             - 'a' and 'b' have 2 neighbors in common, and those neighbors are not
             connected to each other.
