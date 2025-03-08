@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 # load data.
-df = pd.read_csv("/path/to/mnist_train.csv", header=None)
+df = pd.read_csv("/home/elio/datasets/iris.csv", header=None)
 X = df.to_numpy(dtype=np.float32)[:, 1:]
 y = df[0].to_numpy()
 
@@ -18,7 +18,7 @@ gng = MiniGNG(
     max_edge_age=50, 
     sample=.2, 
     untangle=True, 
-    untangle_net_size=0)
+    max_size_connect=0)
 
 # Traing GNG.
 gng.fit(X, y=y)

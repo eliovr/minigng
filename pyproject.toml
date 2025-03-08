@@ -1,3 +1,18 @@
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+[project]
+name = "minigng"
+version = "0.0.2"
+description = "A minimum implementation of the Growing Neural Gas"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.2.3",
+]
+
+[project.optional-dependencies]
+example = [
+    "matplotlib>=3.10.1",
+    "networkx>=3.4.2",
+    "pandas>=2.2.3",
+    "pydot>=3.0.4",
+    "scipy>=1.15.2",
+]
