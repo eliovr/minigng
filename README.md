@@ -6,7 +6,7 @@ A simple version of the Growing Neural Gas algorithm by [Firtzke (1995)](http://
 pip install git+https://github.com/eliovr/minigng.git
 ```
 
-Install with optional dependencies to run `example.py`
+Or with optional dependencies to run `example.py`
 
 ```bash
 pip install git+https://github.com/eliovr/minigng.git#egg=minigng[example]
