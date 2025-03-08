@@ -1,19 +1,15 @@
 # Mini GNG
-A simple version of the Growing Neural Gas algorithm by [Firtzke (1995)](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.648.1905&rep=rep1&type=pdf) -- with some updates suggested in [Ventocilla et al. (2021)](https://www.sciencedirect.com/science/article/pii/S221457962100071X). 
-
-## Requirements
-### Mingng
-- Numpy
-
-### Example
-- Pandas
-- Matplotlib
-- Networkx
-- Graphviz
+A simple version of the Growing Neural Gas algorithm by [Firtzke (1995)](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.648.1905&rep=rep1&type=pdf), with some updates suggested in [Ventocilla et al. (2021)](https://www.sciencedirect.com/science/article/pii/S221457962100071X). 
 
 ## Install
 ```bash
 pip install git+https://github.com/eliovr/minigng.git
+```
+
+Install with optional dependencies to run `example.py`
+
+```bash
+pip install git+https://github.com/eliovr/minigng.git#egg=minigng[example]
 ```
 
 ## Example use
