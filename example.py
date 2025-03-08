@@ -1,13 +1,12 @@
-import pandas as pd
+import networkx as nx
 import numpy as np
+import pandas as pd
+
 from minigng import MiniGNG
 
-from scipy import stats
-import matplotlib.pyplot as plt
-import networkx as nx
 
 # load data.
-df = pd.read_csv("/home/elio/datasets/iris.csv", header=None)
+df = pd.read_csv("/path/to/iris.csv", header=None)
 X = df.to_numpy(dtype=np.float32)[:, 1:]
 y = df[0].to_numpy()
 
