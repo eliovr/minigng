@@ -12,8 +12,8 @@ output = "graph.png"
 df = pd.read_csv(dataset, header=None)
 
 # assuming labels are in the first column.
-X = df.to_numpy(dtype=np.float32)[:, 1:]
-y = df[0].to_numpy()
+X = df.iloc[:, :-1].to_numpy(dtype=np.float32)
+y = df.iloc[:, -1].to_numpy()
 
 # init GNG.
 gng = MiniGNG(

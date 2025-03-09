@@ -1,16 +1,15 @@
+from typing import Any
 import numpy as np
 import random
 
 
 class Unit:
-    def __init__(self, prototype, error=.0):
+    def __init__(self, prototype: np.ndarray, error: float = .0):
         self.prototype = prototype
         self.error = error
-        self.neighbors = set()
+        self.neighbors: set[Unit] = set()
 
         self.count = 0
-        self.var = None # variance.
-        self.cov = None # covariance.
         self.labels = None
 
     def move_towards(self, vector, eps):
@@ -34,18 +33,18 @@ class Unit:
 
 
 class Edge:
-    def __init__(self, source, target, age=0):
+    def __init__(self, source: Unit, target: Unit, age: int = 0):
         self.source = source
         self.target = target
         self.age = age
 
-    def connects_unit(self, unit):
+    def connects_unit(self, unit: Unit) -> bool:
         return unit in (self.source, self.target)
 
-    def connects_units(self, a, b):
+    def connects_units(self, a: Unit, b: Unit) -> bool:
         return self.connects_unit(a) and self.connects_unit(b)
 
-    def get_partner(self, unit):
+    def get_partner(self, unit: Unit) -> Unit:
         if unit == self.source:
             return self.target
         else:
@@ -53,9 +52,21 @@ class Edge:
 
 
 class MiniGNG:
-    def __init__(self, n_epochs=50, sigma=100, max_units=100, eps_b=.2,
-            eps_n=.006, max_edge_age=50, alpha=.5, d=.995,
-            untangle=False, max_size_connect=3, shuffle=True, sample=1.0):
+    def __init__(
+            self,
+            n_epochs: int = 50,
+            sigma: int = 100,
+            max_units: int = 100,
+            eps_b: float = .2,
+            eps_n: float = .006,
+            max_edge_age: int = 50,
+            alpha: float = .5,
+            d: float = .995,
+            untangle: bool = False,
+            max_size_connect: int = 3,
+            shuffle: bool = True,
+            sample: float = 1.0
+        ) -> None:
         """
         Parameters
         ----------
@@ -121,7 +132,7 @@ class MiniGNG:
         self.classes = None
 
 
-    def get_params(self, deep=True):
+    def get_params(self, deep: bool = True) -> dict[str, int | float | bool]:
         """
         Get parameters (adapted from scikit-learn's BaseEstimator class).
         Useful for running tests using scikit-learn.
@@ -139,7 +150,7 @@ class MiniGNG:
         return out
 
 
-    def set_params(self, **params):
+    def set_params(self, **params: int | float | bool):
         """
         Set the parameters (taken from scikit-learn's BaseEstimator class).
         Useful for running tests using scikit-learn.
@@ -171,7 +182,8 @@ class MiniGNG:
         return self
 
 
-    def init_model(self, X):
+    def init_model(self, X: np.ndarray) -> None:
+        assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
         n = len(X) - 1
         a = Unit(X[random.randint(0, n)])
         b = Unit(X[random.randint(0, n)])
@@ -182,7 +194,11 @@ class MiniGNG:
         self.edges.append(Edge(a, b))
 
 
-    def predict(self, X, return_unit_ids=False):
+    def predict(
+            self,
+            X: np.ndarray,
+            return_unit_ids: bool = False) -> list[Any] | tuple[list[Any], list[int]]:
+        assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
         if len(self.units) == 0:
             return None
 
@@ -205,10 +221,10 @@ class MiniGNG:
         if return_unit_ids:
             return labels, unit_ids
 
-        return np.array(labels)
+        return labels
 
 
-    def fit(self, X, y=None):
+    def fit(self, X: np.ndarray, y: np.ndarray = None) -> 'MiniGNG':
         # Train GNG
         for _ in range(0, self.n_epochs):
             self.partial_fit(X)
@@ -237,12 +253,14 @@ class MiniGNG:
         return self
         
 
-    def fit_predict(self, X, return_unit_ids=False):
-        self.fit(X)
-        return self.predict(X, return_unit_ids)
+    def fit_predict(
+            self,
+            X: np.ndarray,
+            return_unit_ids: bool = False) -> list[Any] | tuple[list[Any], list[int]]:
+        return self.fit(X).predict(X, return_unit_ids)
 
 
-    def partial_fit(self, X):
+    def partial_fit(self, X: np.ndarray):
         if len(self.units) == 0:
             self.init_model(X)
 
@@ -371,7 +389,7 @@ class MiniGNG:
         return 1 - score
 
 
-    def net_size_compare(self, node, size):
+    def network_size_compare(self, node, size):
         """
         Checks the size of the network a node belongs to, against the parameter size.
         Returns 1 if the size of the network is greater than "size", -1 if its lower,
@@ -449,7 +467,7 @@ class MiniGNG:
         elif n_bridges == 0:
             has_min_size = (
                 self.max_size_connect <= 0 or
-                self.net_size_compare(b, self.max_size_connect) < 1
+                self.network_size_compare(b, self.max_size_connect) < 1
             )
 
             return has_min_size and not self.exists_path(a, b)
