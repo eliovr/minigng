@@ -9,27 +9,34 @@ class Unit:
         self.error = error
         self.neighbors: set[Unit] = set()
 
+        self.id = -1
         self.count = 0
-        self.labels = None
+        self.class_proba: dict[str, float] =  None
 
     def move_towards(self, vector, eps):
         self.prototype += (vector - self.prototype) * eps
 
-    def get_label(self):
+    def predict_proba(self) -> tuple[str | int, float] | None:
+        """Return the predicted class with its probability.
+
+        Returns:
+            tuple[str | int, float] | None: Class and probability.
+            None when not used for classification (calling `fit` without `y`).
         """
-        Returns this unit's label with the highest probability.
-        Works only when GNG is used in a supervised manner (by providing 'y' to 'fit').
+        return (
+            max(self.class_proba.items(), key=lambda e: e[1])
+            if self.class_proba
+            else None
+        )
+    
+    def predict(self) -> str | int | None:
+        """Returns the predicted class for this unit.
+
+        Returns:
+            str | int | None: Predicted class.
+            None when not used for classification (calling `fit` without `y`).
         """
-
-        label = -1
-        max_p = 0
-
-        for k, v in self.labels.items():
-            if max_p < v:
-                label = k
-                max_p = v
-
-        return label
+        return self.predict_proba()[0] if self.class_proba else None
 
 
 class Edge:
@@ -126,9 +133,9 @@ class MiniGNG:
         self.shuffle = shuffle
         self.sample = sample
         
-        self.units = []
-        self.edges = []
-        self.signal_counter = 0
+        self.units: list[Unit] = []
+        self.edges: list[Edge] = []
+        self.signal_counter: int = 0
         self.classes = None
 
 
@@ -194,34 +201,36 @@ class MiniGNG:
         self.edges.append(Edge(a, b))
 
 
-    def predict(
-            self,
-            X: np.ndarray,
-            return_unit_ids: bool = False) -> list[Any] | tuple[list[Any], list[int]]:
+    def predict(self, X: np.ndarray) -> tuple[list[int], list[str | int] | None]:
+        """Returns the unit id to which each data point is closest to and, if
+        used flor classification, the class predicted by each unit.
+
+        Args:
+            X (np.ndarray): Data to predecict.
+
+        Returns:
+            tuple[list[int], list[str | int] | None]: Unit IDs and classes.
+            Classes is None when not used for classification (calling `fit` without `y`).
+        """
         assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
         if len(self.units) == 0:
             return None
 
-        else:
-            groups = {i: [] for i, _ in enumerate(self.units)}
-            prototypes = np.array([u.prototype for u in self.units if u.count > 0])
-            unit_ids = []
-            labels = []     
+        groups = {i: [] for i, _ in enumerate(self.units)}
+        prototypes = np.array([u.prototype for u in self.units if u.count > 0])
+        unit_ids = []
+        labels = []     
 
-            for i, x in enumerate(X):
-                dists = np.linalg.norm(x - prototypes, axis=1)
-                unit_id = np.argmin(dists)
-                groups[unit_id].append(i)
-                unit_ids.append(unit_id)
-                unit = self.units[unit_id]
+        for i, x in enumerate(X):
+            dists = np.linalg.norm(x - prototypes, axis=1)
+            unit_id = np.argmin(dists)
+            groups[unit_id].append(i)
+            unit_ids.append(unit_id)
+            unit = self.units[unit_id]
+            if unit.class_proba:
+                labels.append(unit.predict())
 
-                if unit.labels is not None:
-                    labels.append(unit.get_label())
-
-        if return_unit_ids:
-            return labels, unit_ids
-
-        return labels
+        return unit_ids, labels or None
 
 
     def fit(self, X: np.ndarray, y: np.ndarray = None) -> 'MiniGNG':
@@ -229,16 +238,18 @@ class MiniGNG:
         for _ in range(0, self.n_epochs):
             self.partial_fit(X)
         
-        # Update model with density, variance and labels (if 'y' is given)
-        groups = {i: [] for i, _ in enumerate(self.units)}
+        for i, u in enumerate(self.units):
+            u.id = i
+        groups = {u.id: [] for u in self.units}
         prototypes = np.array([u.prototype for u in self.units])
-        labels = []
 
         for i, x in enumerate(X):
             dists = np.linalg.norm(x - prototypes, axis=1)
             unit_id = np.argmin(dists)
             groups[unit_id].append(i)
-            labels.append(unit_id)
+
+        if y is not None:
+            self.classes = np.unique(y)
 
         for k, v in groups.items():
             unit = self.units[k]
@@ -246,10 +257,10 @@ class MiniGNG:
             unit.count = len(points_in_unit)
             
             if y is not None:
+                unit.class_proba = {c: .0 for c in self.classes}
                 unique, counts = np.unique(y[v], return_counts=True)
-                unit.labels = dict(zip(unique, counts / unit.count))
+                unit.class_proba.update(dict(zip(unique, counts / unit.count)))
 
-        self.classes = np.sort(np.unique(y))
         return self
         
 
@@ -276,8 +287,7 @@ class MiniGNG:
 
         if self.shuffle or self.sample < 1.0:
             size = len(X)
-            n_samples = size
-            if self.sample < 1.0: n_samples = int(size * self.sample)
+            n_samples = int(size * self.sample) if self.sample < 1.0 else size
             signals = X[np.random.choice(size, n_samples)]
 
         for signal in signals:
@@ -289,8 +299,8 @@ class MiniGNG:
             units_ids = np.argsort(distance)
 
             unit_a_id, unit_b_id = units_ids[:2]
-            unit_a = self.units[unit_a_id]
-            unit_b = self.units[unit_b_id]
+            unit_a: Unit = self.units[unit_a_id]
+            unit_b: Unit = self.units[unit_b_id]
             dist = distance[unit_a_id]
 
             ab_edge = None
@@ -389,7 +399,7 @@ class MiniGNG:
         return 1 - score
 
 
-    def network_size_compare(self, node, size):
+    def network_size_compare(self, node: Unit, size: int) -> int:
         """
         Checks the size of the network a node belongs to, against the parameter size.
         Returns 1 if the size of the network is greater than "size", -1 if its lower,
@@ -417,7 +427,7 @@ class MiniGNG:
         else: return 0
 
     
-    def exists_path(self, a, b):
+    def exists_path(self, a: Unit, b: Unit) -> bool:
         """
         True if there's a path between a and b, False otherwise.
         """
@@ -440,7 +450,7 @@ class MiniGNG:
         return exists
 
 
-    def no_curling(self, a, b):
+    def no_curling(self, a: Unit, b: Unit) -> bool:
         """
         Checks if connecting units a and b would 'curl' the network into a
         high-dimensional graph (partially).
@@ -481,7 +491,7 @@ class MiniGNG:
         """
 
         nodes = '*node data\nID name\n'
-        nodes += '\n'.join([f'{i} {u.get_label() if u.labels else i}' for i, u in enumerate(self.units)])
+        nodes += '\n'.join([f'{i} {u.predict() or i}' for i, u in enumerate(self.units)])
 
         edges = '*tie data\nfrom to strength\n'
         edges += '\n'.join([
@@ -506,7 +516,7 @@ class MiniGNG:
           id {i}
           label {label}
         ]
-        """.format(i=i, label=u.get_label() if u.labels else i) for i, u in enumerate(self.units)]
+        """.format(i=i, label=u.predict() or i) for i, u in enumerate(self.units)]
 
         edges = [
         """

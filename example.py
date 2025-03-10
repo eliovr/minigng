@@ -27,7 +27,7 @@ gng = MiniGNG(
 # Traing GNG.
 gng.fit(X, y=y)
 
-predictions, unit_ids = gng.predict(X, return_unit_ids=True)
+unit_ids, predictions = gng.predict(X)
 labels = dict(zip(unit_ids, predictions))
 
 # plot the graph using Networkx and Graphviz.
