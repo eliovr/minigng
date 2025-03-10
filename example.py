@@ -11,7 +11,7 @@ output = "graph.png"
 # load data.
 df = pd.read_csv(dataset, header=None)
 
-# assuming labels are in the first column.
+# assuming labels are in the last column.
 X = df.iloc[:, :-1].to_numpy(dtype=np.float32)
 y = df.iloc[:, -1].to_numpy()
 
