@@ -297,10 +297,17 @@ class MiniGNG:
         if n >= 2:
             idx_a, idx_b = random.sample(range(n), 2)
         else:
+            # Edge case: only one sample - add small random perturbation
             idx_a = idx_b = 0
             
         a = Unit(X[idx_a].copy())
-        b = Unit(X[idx_b].copy())
+        b_proto = X[idx_b].copy()
+        
+        # If same sample was selected, add small perturbation to avoid identical units
+        if idx_a == idx_b:
+            b_proto = b_proto + np.random.normal(0, 0.01, b_proto.shape)
+            
+        b = Unit(b_proto)
 
         a.neighbors.add(b)
         b.neighbors.add(a)
@@ -468,8 +475,9 @@ class MiniGNG:
             
             # Get indices of two smallest distances efficiently
             if len(self.units) >= 2:
-                # argpartition(arr, 1) partitions array so smallest element is in position 0
-                # and second smallest is somewhere in positions 0-1 (not guaranteed sorted)
+                # argpartition(arr, 1) partitions so that arr[0] is smallest,
+                # and arr[1] contains the second smallest (but not sorted)
+                # We take indices [0:2] and sort them to ensure correct ordering
                 indices = np.argpartition(distances, 1)[:2]
                 # Sort these two indices by their distances to get nearest first
                 sorted_indices = indices[np.argsort(distances[indices])]
@@ -513,6 +521,7 @@ class MiniGNG:
             # 7. Remove edges with an age larger than maxAge. If this results in
             # points having no emanating edges, remove them as well.
             edges_to_remove = []
+            units_to_remove = set()
 
             for e in self.edges:
                 if e.age > max_edge_age:
@@ -524,11 +533,15 @@ class MiniGNG:
                 e.target.neighbors.discard(e.source)
                 self._remove_edge(e)
 
-                # Remove units with no neighbors
+                # Mark units with no neighbors for removal
                 if len(e.source.neighbors) == 0:
-                    self.units.remove(e.source)
+                    units_to_remove.add(e.source)
                 if len(e.target.neighbors) == 0:
-                    self.units.remove(e.target)
+                    units_to_remove.add(e.target)
+            
+            # Remove isolated units after all edge processing is complete
+            for unit in units_to_remove:
+                self.units.remove(unit)
 
             # 8. If the number of input signals generated so far is an integer
             # multiple of a parameter A, insert a new unit as follows.
