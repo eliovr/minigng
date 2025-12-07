@@ -366,12 +366,24 @@ class MiniGNG:
             
         prototypes = np.array([u.prototype for u in self.units])
         
-        # Compute distances in a memory-efficient way
-        # Instead of creating a large 3D array, compute row by row
-        unit_assignments = np.zeros(len(X), dtype=int)
-        for i, x in enumerate(X):
-            dists = np.linalg.norm(prototypes - x, axis=1)
-            unit_assignments[i] = np.argmin(dists)
+        # Compute distances efficiently based on dataset size
+        # For small datasets, use vectorized computation; for large ones, use row-by-row
+        # Threshold chosen based on typical memory constraints
+        n_samples, n_features = X.shape
+        n_units = len(self.units)
+        # Estimate memory usage: n_samples * n_units * n_features * 8 bytes
+        estimated_memory_mb = (n_samples * n_units * n_features * 8) / (1024 * 1024)
+        
+        if estimated_memory_mb < 100:  # Less than 100MB
+            # Use vectorized computation for better performance
+            distances = np.linalg.norm(X[:, np.newaxis, :] - prototypes[np.newaxis, :, :], axis=2)
+            unit_assignments = np.argmin(distances, axis=1)
+        else:
+            # Use row-by-row for memory efficiency
+            unit_assignments = np.zeros(len(X), dtype=int)
+            for i, x in enumerate(X):
+                dists = np.linalg.norm(prototypes - x, axis=1)
+                unit_assignments[i] = np.argmin(dists)
         
         # Group samples by unit
         groups = {i: [] for i in range(len(self.units))}
@@ -532,6 +544,11 @@ class MiniGNG:
 
                 # Insert edges connecting the new unit r with units q and f,
                 # and remove the original edge between q and f.
+                # Remove old edge first to maintain consistency
+                qf_edge = self._get_edge(q, f)
+                if qf_edge:
+                    self._remove_edge(qf_edge)
+                
                 q.neighbors.discard(f)
                 f.neighbors.discard(q)
 
@@ -539,11 +556,6 @@ class MiniGNG:
                 f.neighbors.add(r)
                 r.neighbors.add(q)
                 r.neighbors.add(f)
-
-                # Remove old edge between q and f using edge map
-                qf_edge = self._get_edge(q, f)
-                if qf_edge:
-                    self._remove_edge(qf_edge)
                     
                 self._add_edge(q, r)
                 self._add_edge(f, r)
