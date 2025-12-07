@@ -180,6 +180,7 @@ class MiniGNG:
         
         self.units: list[Unit] = []
         self.edges: list[Edge] = []
+        self._edge_map: dict[tuple[Unit, Unit], Edge] = {}  # Fast edge lookup
         self.signal_counter: int = 0
         self.classes = None
 
@@ -233,6 +234,48 @@ class MiniGNG:
 
         return self
 
+    def _add_edge(self, source: Unit, target: Unit, age: int = 0) -> Edge:
+        """Add an edge to the network with map tracking.
+        
+        Args:
+            source: First endpoint.
+            target: Second endpoint.
+            age: Initial age of the edge.
+            
+        Returns:
+            The created edge.
+        """
+        edge = Edge(source, target, age)
+        self.edges.append(edge)
+        # Store in both directions for fast lookup
+        self._edge_map[(source, target)] = edge
+        self._edge_map[(target, source)] = edge
+        return edge
+    
+    def _remove_edge(self, edge: Edge) -> None:
+        """Remove an edge from the network and update map.
+        
+        Args:
+            edge: The edge to remove.
+        """
+        if edge in self.edges:
+            self.edges.remove(edge)
+        # Remove from map in both directions
+        self._edge_map.pop((edge.source, edge.target), None)
+        self._edge_map.pop((edge.target, edge.source), None)
+    
+    def _get_edge(self, a: Unit, b: Unit) -> Optional[Edge]:
+        """Get edge between two units in O(1) time.
+        
+        Args:
+            a: First unit.
+            b: Second unit.
+            
+        Returns:
+            Edge if exists, None otherwise.
+        """
+        return self._edge_map.get((a, b))
+
 
     def init_model(self, X: npt.NDArray[np.float64]) -> None:
         """Initialize the model with two random units from the data.
@@ -251,7 +294,7 @@ class MiniGNG:
         a.neighbors.add(b)
         b.neighbors.add(a)
         self.units = [a, b]
-        self.edges.append(Edge(a, b))
+        self._add_edge(a, b)
 
 
     def predict(self, X: npt.NDArray[np.float64]) -> tuple[list[int], Optional[list[str | int]]]:
@@ -393,15 +436,14 @@ class MiniGNG:
             unit_b: Unit = self.units[unit_b_id]
             dist = distances[unit_a_id]
 
-            ab_edge: Optional[Edge] = None
-
-            # 3. Increment the age of all edges emanating from S1.
-            for e in self.edges:
-                if e.connects_unit(unit_a):
-                    e.age += 1
-
-                    if e.connects_unit(unit_b):
-                        ab_edge = e
+            # 3. Increment the age of all edges emanating from S1 and find edge to S2.
+            # Use edge map for O(1) lookup instead of O(n) search
+            ab_edge = self._get_edge(unit_a, unit_b)
+            
+            for neighbor in unit_a.neighbors:
+                edge = self._get_edge(unit_a, neighbor)
+                if edge:
+                    edge.age += 1
 
             # 4. Add the squared distance between the input signal and
             # the nearest unit in input space to a local counter variable.
@@ -420,27 +462,27 @@ class MiniGNG:
             elif not self.untangle or self.no_curling(unit_a, unit_b):
                 unit_a.neighbors.add(unit_b)
                 unit_b.neighbors.add(unit_a)
-                self.edges.append(Edge(unit_a, unit_b))
+                self._add_edge(unit_a, unit_b)
 
             # 7. Remove edges with an age larger than maxAge. If this results in
             # points having no emanating edges, remove them as well.
-            edges_to_keep = []
+            edges_to_remove = []
 
             for e in self.edges:
-                if e.age <= max_edge_age:
-                    edges_to_keep.append(e)
-                else:
-                    # Edge is too old, remove it
-                    e.source.neighbors.discard(e.target)
-                    e.target.neighbors.discard(e.source)
+                if e.age > max_edge_age:
+                    edges_to_remove.append(e)
+                    
+            for e in edges_to_remove:
+                # Edge is too old, remove it
+                e.source.neighbors.discard(e.target)
+                e.target.neighbors.discard(e.source)
+                self._remove_edge(e)
 
-                    # Remove units with no neighbors
-                    if len(e.source.neighbors) == 0:
-                        self.units.remove(e.source)
-                    if len(e.target.neighbors) == 0:
-                        self.units.remove(e.target)
-
-            self.edges = edges_to_keep
+                # Remove units with no neighbors
+                if len(e.source.neighbors) == 0:
+                    self.units.remove(e.source)
+                if len(e.target.neighbors) == 0:
+                    self.units.remove(e.target)
 
             # 8. If the number of input signals generated so far is an integer
             # multiple of a parameter A, insert a new unit as follows.
@@ -467,9 +509,13 @@ class MiniGNG:
                 r.neighbors.add(q)
                 r.neighbors.add(f)
 
-                self.edges = [e for e in self.edges if not e.connects_units(q, f)]
-                self.edges.append(Edge(q, r))
-                self.edges.append(Edge(f, r))
+                # Remove old edge between q and f using edge map
+                qf_edge = self._get_edge(q, f)
+                if qf_edge:
+                    self._remove_edge(qf_edge)
+                    
+                self._add_edge(q, r)
+                self._add_edge(f, r)
 
                 q.error *= alpha
                 f.error *= alpha
