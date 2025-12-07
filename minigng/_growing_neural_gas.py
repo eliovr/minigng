@@ -3,6 +3,11 @@ import numpy as np
 import numpy.typing as npt
 import random
 
+# Constants for memory-efficient distance computation
+_BYTES_PER_FLOAT64 = 8  # Size of float64 in bytes
+_BYTES_TO_MB = 1024 * 1024  # Conversion factor for bytes to megabytes
+_VECTORIZED_MEMORY_THRESHOLD_MB = 100  # Max memory for vectorized computation
+
 
 class Unit:
     """Represents a neuron/unit in the Growing Neural Gas network.
@@ -378,10 +383,10 @@ class MiniGNG:
         # Note: scipy.spatial.distance.cdist would be more memory-efficient but is not a dependency
         n_samples, n_features = X.shape
         n_units = len(self.units)
-        # Estimate memory usage: n_samples * n_units * n_features * 8 bytes
-        estimated_memory_mb = (n_samples * n_units * n_features * 8) / (1024 * 1024)
+        # Estimate memory usage for 3D distance array
+        estimated_memory_mb = (n_samples * n_units * n_features * _BYTES_PER_FLOAT64) / _BYTES_TO_MB
         
-        if estimated_memory_mb < 100:  # Less than 100MB
+        if estimated_memory_mb < _VECTORIZED_MEMORY_THRESHOLD_MB:
             # Use vectorized computation for better performance
             distances = np.linalg.norm(X[:, np.newaxis, :] - prototypes[np.newaxis, :, :], axis=2)
             unit_assignments = np.argmin(distances, axis=1)
