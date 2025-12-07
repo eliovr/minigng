@@ -395,9 +395,14 @@ class MiniGNG:
             return_unit_ids: Whether to return unit IDs along with predictions.
             
         Returns:
-            Predictions or tuple of (predictions, unit_ids).
+            Predictions or tuple of (predictions, unit_ids) if return_unit_ids is True.
         """
-        return self.fit(X).predict(X)
+        self.fit(X)
+        unit_ids, predictions = self.predict(X)
+        
+        if return_unit_ids:
+            return predictions if predictions else unit_ids, unit_ids
+        return predictions if predictions else unit_ids
 
 
     def partial_fit(self, X: npt.NDArray[np.float64]) -> None:
@@ -426,7 +431,8 @@ class MiniGNG:
             indices = np.random.choice(size, n_samples, replace=False)
             signals = X[indices]
 
-        # Cache prototypes array outside the loop for better performance
+        # Process each signal (note: prototypes must be recreated each iteration
+        # as they are updated via move_towards())
         for signal in signals:
             self.signal_counter += 1
 
@@ -436,15 +442,18 @@ class MiniGNG:
             distances = np.linalg.norm(prototypes - signal, axis=1)
             
             # Get indices of two smallest distances efficiently
-            if len(self.units) > 2:
-                partitioned = np.argpartition(distances, 1)
-                unit_a_id = partitioned[0] if distances[partitioned[0]] < distances[partitioned[1]] else partitioned[1]
-                unit_b_id = partitioned[1] if distances[partitioned[0]] < distances[partitioned[1]] else partitioned[0]
+            if len(self.units) >= 2:
+                # Get two units with smallest distances
+                indices = np.argpartition(distances, min(1, len(self.units) - 1))[:2]
+                # Sort these two to get nearest (0) and second-nearest (1)
+                sorted_indices = indices[np.argsort(distances[indices])]
+                unit_a_id, unit_b_id = sorted_indices[0], sorted_indices[1]
             else:
-                unit_a_id, unit_b_id = 0, 1 if len(self.units) > 1 else 0
+                # Edge case: only one unit
+                unit_a_id = unit_b_id = 0
                 
             unit_a: Unit = self.units[unit_a_id]
-            unit_b: Unit = self.units[unit_b_id]
+            unit_b: Unit = self.units[unit_b_id] if len(self.units) >= 2 else unit_a
             dist = distances[unit_a_id]
 
             # 3. Increment the age of all edges emanating from S1 and find edge to S2.
