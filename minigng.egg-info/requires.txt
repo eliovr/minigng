@@ -1,0 +1,8 @@
+numpy>=2.2.3
+
+[example]
+matplotlib>=3.10.1
+networkx>=3.4.2
+pandas>=2.2.3
+pydot>=3.0.4
+scipy>=1.15.2
