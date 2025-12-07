@@ -368,7 +368,7 @@ class MiniGNG:
         
         # Compute distances efficiently based on dataset size
         # For small datasets, use vectorized computation; for large ones, use row-by-row
-        # Threshold chosen based on typical memory constraints
+        # Note: scipy.spatial.distance.cdist would be more memory-efficient but is not a dependency
         n_samples, n_features = X.shape
         n_units = len(self.units)
         # Estimate memory usage: n_samples * n_units * n_features * 8 bytes
@@ -379,7 +379,7 @@ class MiniGNG:
             distances = np.linalg.norm(X[:, np.newaxis, :] - prototypes[np.newaxis, :, :], axis=2)
             unit_assignments = np.argmin(distances, axis=1)
         else:
-            # Use row-by-row for memory efficiency
+            # Use row-by-row for memory efficiency on large datasets
             unit_assignments = np.zeros(len(X), dtype=int)
             for i, x in enumerate(X):
                 dists = np.linalg.norm(prototypes - x, axis=1)
@@ -416,14 +416,17 @@ class MiniGNG:
             return_unit_ids: Whether to return unit IDs along with predictions.
             
         Returns:
-            Predictions or tuple of (predictions, unit_ids) if return_unit_ids is True.
+            For clustering (no y): returns unit_ids or (unit_ids, unit_ids)
+            For classification (with y): returns predictions or (predictions, unit_ids)
         """
         self.fit(X)
         unit_ids, predictions = self.predict(X)
         
         if return_unit_ids:
-            return predictions if predictions else unit_ids, unit_ids
-        return predictions if predictions else unit_ids
+            # Return (predictions/unit_ids, unit_ids)
+            return (predictions if predictions is not None else unit_ids), unit_ids
+        # Return predictions if available, otherwise unit_ids
+        return predictions if predictions is not None else unit_ids
 
 
     def partial_fit(self, X: npt.NDArray[np.float64]) -> None:
@@ -465,10 +468,10 @@ class MiniGNG:
             
             # Get indices of two smallest distances efficiently
             if len(self.units) >= 2:
-                # argpartition(arr, k) puts k smallest elements in first k+1 positions
-                # We get first 2 positions which contain the 2 smallest distances
+                # argpartition(arr, 1) partitions array so smallest element is in position 0
+                # and second smallest is somewhere in positions 0-1 (not guaranteed sorted)
                 indices = np.argpartition(distances, 1)[:2]
-                # Sort these two to get nearest (0) and second-nearest (1)
+                # Sort these two indices by their distances to get nearest first
                 sorted_indices = indices[np.argsort(distances[indices])]
                 unit_a_id, unit_b_id = sorted_indices[0], sorted_indices[1]
             else:
