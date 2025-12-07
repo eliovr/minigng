@@ -1,61 +1,115 @@
-from typing import Any
+from typing import Any, Optional
 import numpy as np
+import numpy.typing as npt
 import random
+
+# Constants for memory-efficient distance computation
+_BYTES_PER_FLOAT64 = 8  # Size of float64 in bytes
+_BYTES_TO_MB = 1024 * 1024  # Conversion factor for bytes to megabytes
+_VECTORIZED_MEMORY_THRESHOLD_MB = 100  # Max memory for vectorized computation
 
 
 class Unit:
-    def __init__(self, prototype: np.ndarray, error: float = .0):
+    """Represents a neuron/unit in the Growing Neural Gas network.
+    
+    Attributes:
+        prototype: The position vector of this unit in input space.
+        error: Accumulated error for this unit.
+        neighbors: Set of neighboring units connected by edges.
+        id: Unique identifier assigned after training.
+        count: Number of data points closest to this unit.
+        class_proba: Probability distribution over classes (for classification).
+    """
+    
+    __slots__ = ('prototype', 'error', 'neighbors', 'id', 'count', 'class_proba')
+    
+    def __init__(self, prototype: npt.NDArray[np.float64], error: float = 0.0) -> None:
         self.prototype = prototype
         self.error = error
-        self.neighbors: set[Unit] = set()
+        self.neighbors: set['Unit'] = set()
 
-        self.id = -1
-        self.count = 0
-        self.class_proba: dict[str, float] =  None
+        self.id: int = -1
+        self.count: int = 0
+        self.class_proba: Optional[dict[str, float]] = None
 
-    def move_towards(self, vector, eps):
+    def move_towards(self, vector: npt.NDArray[np.float64], eps: float) -> None:
+        """Move this unit's prototype towards a target vector.
+        
+        Args:
+            vector: Target vector to move towards.
+            eps: Learning rate (fraction of distance to move).
+        """
         self.prototype += (vector - self.prototype) * eps
 
-    def predict_proba(self) -> tuple[str | int, float] | None:
+    def predict_proba(self) -> Optional[tuple[str | int, float]]:
         """Return the predicted class with its probability.
 
         Returns:
-            tuple[str | int, float] | None: Class and probability.
-            None when not used for classification (calling `fit` without `y`).
+            Tuple of (class, probability) or None if not used for classification.
         """
-        return (
-            max(self.class_proba.items(), key=lambda e: e[1])
-            if self.class_proba
-            else None
-        )
+        if self.class_proba:
+            return max(self.class_proba.items(), key=lambda e: e[1])
+        return None
     
-    def predict(self) -> str | int | None:
+    def predict(self) -> Optional[str | int]:
         """Returns the predicted class for this unit.
 
         Returns:
-            str | int | None: Predicted class.
-            None when not used for classification (calling `fit` without `y`).
+            Predicted class or None if not used for classification.
         """
-        return self.predict_proba()[0] if self.class_proba else None
+        proba = self.predict_proba()
+        return proba[0] if proba else None
 
 
 class Edge:
-    def __init__(self, source: Unit, target: Unit, age: int = 0):
+    """Represents an edge connecting two units in the network.
+    
+    Attributes:
+        source: One endpoint of the edge.
+        target: Other endpoint of the edge.
+        age: Number of signals since this edge was last refreshed.
+    """
+    
+    __slots__ = ('source', 'target', 'age')
+    
+    def __init__(self, source: Unit, target: Unit, age: int = 0) -> None:
         self.source = source
         self.target = target
         self.age = age
 
     def connects_unit(self, unit: Unit) -> bool:
+        """Check if this edge connects to the given unit.
+        
+        Args:
+            unit: Unit to check.
+            
+        Returns:
+            True if the edge connects to the unit.
+        """
         return unit in (self.source, self.target)
 
     def connects_units(self, a: Unit, b: Unit) -> bool:
+        """Check if this edge connects the two given units.
+        
+        Args:
+            a: First unit.
+            b: Second unit.
+            
+        Returns:
+            True if the edge connects both units.
+        """
         return self.connects_unit(a) and self.connects_unit(b)
 
     def get_partner(self, unit: Unit) -> Unit:
-        if unit == self.source:
-            return self.target
-        else:
-            return self.source
+        """Get the other unit connected by this edge.
+        
+        Args:
+            unit: One endpoint of the edge.
+            
+        Returns:
+            The other endpoint.
+        """
+        return self.target if unit == self.source else self.source
 
 
 class MiniGNG:
@@ -89,7 +143,7 @@ class MiniGNG:
         eps_b : float (default=.2)
             Adaptation step size for the winning unit.
 
-        eps_n : float (defailt=.006)
+        eps_n : float (default=.006)
             Adaptation step size for the neighbors of the winning unit.
 
         max_edge_age : int (default=50)
@@ -135,6 +189,7 @@ class MiniGNG:
         
         self.units: list[Unit] = []
         self.edges: list[Edge] = []
+        self._edge_map: dict[tuple[Unit, Unit], Edge] = {}  # Fast edge lookup
         self.signal_counter: int = 0
         self.classes = None
 
@@ -188,77 +243,175 @@ class MiniGNG:
 
         return self
 
+    def _add_edge(self, source: Unit, target: Unit, age: int = 0) -> Edge:
+        """Add an edge to the network with map tracking.
+        
+        Args:
+            source: First endpoint.
+            target: Second endpoint.
+            age: Initial age of the edge.
+            
+        Returns:
+            The created edge.
+        """
+        edge = Edge(source, target, age)
+        self.edges.append(edge)
+        # Store in both directions for fast lookup
+        self._edge_map[(source, target)] = edge
+        self._edge_map[(target, source)] = edge
+        return edge
+    
+    def _remove_edge(self, edge: Edge) -> None:
+        """Remove an edge from the network and update map.
+        
+        Args:
+            edge: The edge to remove.
+        """
+        if edge in self.edges:
+            self.edges.remove(edge)
+        # Remove from map in both directions
+        self._edge_map.pop((edge.source, edge.target), None)
+        self._edge_map.pop((edge.target, edge.source), None)
+    
+    def _get_edge(self, a: Unit, b: Unit) -> Optional[Edge]:
+        """Get edge between two units in O(1) time.
+        
+        Args:
+            a: First unit.
+            b: Second unit.
+            
+        Returns:
+            Edge if exists, None otherwise.
+        """
+        return self._edge_map.get((a, b))
 
-    def init_model(self, X: np.ndarray) -> None:
+
+    def init_model(self, X: npt.NDArray[np.float64]) -> None:
+        """Initialize the model with two random units from the data.
+        
+        Args:
+            X: Training data array of shape (n_samples, n_features).
+            
+        Raises:
+            AssertionError: If X is not a 2D array.
+        """
         assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
-        n = len(X) - 1
-        a = Unit(X[random.randint(0, n)])
-        b = Unit(X[random.randint(0, n)])
+        n = len(X)
+        
+        # Ensure we pick two different samples for initialization
+        if n >= 2:
+            idx_a, idx_b = random.sample(range(n), 2)
+        else:
+            # Edge case: only one sample - add small random perturbation
+            idx_a = idx_b = 0
+            
+        a = Unit(X[idx_a].copy())
+        b_proto = X[idx_b].copy()
+        
+        # If same sample was selected, add small perturbation to avoid identical units
+        if idx_a == idx_b:
+            b_proto = b_proto + np.random.normal(0, 0.01, b_proto.shape)
+            
+        b = Unit(b_proto)
 
         a.neighbors.add(b)
         b.neighbors.add(a)
         self.units = [a, b]
-        self.edges.append(Edge(a, b))
+        self._add_edge(a, b)
 
 
-    def predict(self, X: np.ndarray) -> tuple[list[int], list[str | int] | None]:
+    def predict(self, X: npt.NDArray[np.float64]) -> tuple[list[int], Optional[list[str | int]]]:
         """Returns the unit id to which each data point is closest to and, if
-        used flor classification, the class predicted by each unit.
+        used for classification, the class predicted by each unit.
 
         Args:
-            X (np.ndarray): Data to predecict.
+            X: Data to predict of shape (n_samples, n_features).
 
         Returns:
-            tuple[list[int], list[str | int] | None]: Unit IDs and classes.
-            Classes is None when not used for classification (calling `fit` without `y`).
+            Tuple of (unit_ids, classes). Classes is None when not used for
+            classification (calling `fit` without `y`).
+            
+        Raises:
+            AssertionError: If X is not a 2D array.
         """
         assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
         if len(self.units) == 0:
-            return None
+            return [], None
 
-        groups = {i: [] for i, _ in enumerate(self.units)}
-        prototypes = np.array([u.prototype for u in self.units if u.count > 0])
+        # Cache prototypes array to avoid repeated creation
+        active_units = [u for u in self.units if u.count > 0]
+        if not active_units:
+            return [], None
+            
+        prototypes = np.array([u.prototype for u in active_units])
         unit_ids = []
-        labels = []     
+        labels = []
 
-        for i, x in enumerate(X):
+        for x in X:
             dists = np.linalg.norm(x - prototypes, axis=1)
             unit_id = np.argmin(dists)
-            groups[unit_id].append(i)
             unit_ids.append(unit_id)
-            unit = self.units[unit_id]
+            unit = active_units[unit_id]
             if unit.class_proba:
                 labels.append(unit.predict())
 
-        return unit_ids, labels or None
+        return unit_ids, (labels if labels else None)
 
 
-    def fit(self, X: np.ndarray, y: np.ndarray = None) -> 'MiniGNG':
+    def fit(self, X: npt.NDArray[np.float64], y: Optional[npt.NDArray] = None) -> 'MiniGNG':
+        """Train the Growing Neural Gas model.
+        
+        Args:
+            X: Training data of shape (n_samples, n_features).
+            y: Optional labels for classification of shape (n_samples,).
+            
+        Returns:
+            Self for method chaining.
+        """
         # Train GNG
-        for _ in range(0, self.n_epochs):
+        for _ in range(self.n_epochs):
             self.partial_fit(X)
         
+        # Assign IDs and compute prototypes once
         for i, u in enumerate(self.units):
             u.id = i
-        groups = {u.id: [] for u in self.units}
+            
         prototypes = np.array([u.prototype for u in self.units])
-
-        for i, x in enumerate(X):
-            dists = np.linalg.norm(x - prototypes, axis=1)
-            unit_id = np.argmin(dists)
-            groups[unit_id].append(i)
+        
+        # Compute distances efficiently based on dataset size
+        # For small datasets, use vectorized computation; for large ones, use row-by-row
+        # Note: scipy.spatial.distance.cdist would be more memory-efficient but is not a dependency
+        n_samples, n_features = X.shape
+        n_units = len(self.units)
+        # Estimate memory usage for 3D distance array
+        estimated_memory_mb = (n_samples * n_units * n_features * _BYTES_PER_FLOAT64) / _BYTES_TO_MB
+        
+        if estimated_memory_mb < _VECTORIZED_MEMORY_THRESHOLD_MB:
+            # Use vectorized computation for better performance
+            distances = np.linalg.norm(X[:, np.newaxis, :] - prototypes[np.newaxis, :, :], axis=2)
+            unit_assignments = np.argmin(distances, axis=1)
+        else:
+            # Use row-by-row for memory efficiency on large datasets
+            unit_assignments = np.zeros(len(X), dtype=int)
+            for i, x in enumerate(X):
+                dists = np.linalg.norm(prototypes - x, axis=1)
+                unit_assignments[i] = np.argmin(dists)
+        
+        # Group samples by unit
+        groups = {i: [] for i in range(len(self.units))}
+        for sample_idx, unit_id in enumerate(unit_assignments):
+            groups[unit_id].append(sample_idx)
 
         if y is not None:
             self.classes = np.unique(y)
 
-        for k, v in groups.items():
-            unit = self.units[k]
-            points_in_unit = X[v]
-            unit.count = len(points_in_unit)
+        for unit_id, sample_indices in groups.items():
+            unit = self.units[unit_id]
+            unit.count = len(sample_indices)
             
-            if y is not None:
-                unit.class_proba = {c: .0 for c in self.classes}
-                unique, counts = np.unique(y[v], return_counts=True)
+            if y is not None and sample_indices:
+                unit.class_proba = {c: 0.0 for c in self.classes}
+                unique, counts = np.unique(y[sample_indices], return_counts=True)
                 unit.class_proba.update(dict(zip(unique, counts / unit.count)))
 
         return self
@@ -266,15 +419,38 @@ class MiniGNG:
 
     def fit_predict(
             self,
-            X: np.ndarray,
+            X: npt.NDArray[np.float64],
             return_unit_ids: bool = False) -> list[Any] | tuple[list[Any], list[int]]:
-        return self.fit(X).predict(X, return_unit_ids)
+        """Fit the model and return predictions.
+        
+        Args:
+            X: Training data.
+            return_unit_ids: Whether to return unit IDs along with predictions.
+            
+        Returns:
+            For clustering (no y): returns unit_ids or (unit_ids, unit_ids)
+            For classification (with y): returns predictions or (predictions, unit_ids)
+        """
+        self.fit(X)
+        unit_ids, predictions = self.predict(X)
+        
+        if return_unit_ids:
+            # Return (predictions/unit_ids, unit_ids)
+            return (predictions if predictions is not None else unit_ids), unit_ids
+        # Return predictions if available, otherwise unit_ids
+        return predictions if predictions is not None else unit_ids
 
 
-    def partial_fit(self, X: np.ndarray):
+    def partial_fit(self, X: npt.NDArray[np.float64]) -> None:
+        """Perform one epoch of training on the data.
+        
+        Args:
+            X: Training data of shape (n_samples, n_features).
+        """
         if len(self.units) == 0:
             self.init_model(X)
 
+        # Cache parameters as local variables for faster access
         sigma = self.sigma
         alpha = self.alpha
         eps_b = self.eps_b
@@ -288,31 +464,45 @@ class MiniGNG:
         if self.shuffle or self.sample < 1.0:
             size = len(X)
             n_samples = int(size * self.sample) if self.sample < 1.0 else size
-            signals = X[np.random.choice(size, n_samples)]
+            # Use permutation for efficient shuffling/sampling
+            indices = np.random.permutation(size)[:n_samples]
+            signals = X[indices]
 
+        # Process each signal (note: prototypes must be recreated each iteration
+        # as they are updated via move_towards())
         for signal in signals:
             self.signal_counter += 1
 
             # 2. Find the nearest unit S1 and the second-nearest unit S2.
+            # Using argpartition for O(n) instead of argsort's O(n log n)
             prototypes = np.array([u.prototype for u in self.units])
-            distance = np.linalg.norm(prototypes - signal, axis=1)
-            units_ids = np.argsort(distance)
-
-            unit_a_id, unit_b_id = units_ids[:2]
+            distances = np.linalg.norm(prototypes - signal, axis=1)
+            
+            # Get indices of two smallest distances efficiently
+            if len(self.units) >= 2:
+                # argpartition(arr, 1) partitions so that arr[0] is smallest,
+                # and arr[1] contains the second smallest (but not sorted)
+                # We take indices [0:2] and sort them to ensure correct ordering
+                indices = np.argpartition(distances, 1)[:2]
+                # Sort these two indices by their distances to get nearest first
+                sorted_indices = indices[np.argsort(distances[indices])]
+                unit_a_id, unit_b_id = sorted_indices[0], sorted_indices[1]
+            else:
+                # Edge case: only one unit (shouldn't happen in normal operation)
+                unit_a_id = unit_b_id = 0
+                
             unit_a: Unit = self.units[unit_a_id]
-            unit_b: Unit = self.units[unit_b_id]
-            dist = distance[unit_a_id]
+            unit_b: Unit = self.units[unit_b_id] if len(self.units) >= 2 else unit_a
+            dist = distances[unit_a_id]
 
-            ab_edge = None
-
-            # 3. Increment the age of all edges emanating from S1.
-            for e in self.edges:
-                if e.connects_unit(unit_a):
-                    e.age += 1
-
-                    if e.connects_unit(unit_b):
-                        ab_edge = e
-                        
+            # 3. Increment the age of all edges emanating from S1 and find edge to S2.
+            # Use edge map for O(1) lookup instead of O(n) search
+            ab_edge = self._get_edge(unit_a, unit_b)
+            
+            for neighbor in unit_a.neighbors:
+                edge = self._get_edge(unit_a, neighbor)
+                if edge:
+                    edge.age += 1
 
             # 4. Add the squared distance between the input signal and
             # the nearest unit in input space to a local counter variable.
@@ -326,33 +516,37 @@ class MiniGNG:
 
             # 6. If S1 and S2 are connected by an edge, set the age of this
             # edge to zero. If such an edge does not exist, create it.
-            if not ab_edge is None:
+            if ab_edge is not None:
                 ab_edge.age = 0
-
             elif not self.untangle or self.no_curling(unit_a, unit_b):
                 unit_a.neighbors.add(unit_b)
                 unit_b.neighbors.add(unit_a)
-                self.edges.append(Edge(unit_a, unit_b))
+                self._add_edge(unit_a, unit_b)
 
             # 7. Remove edges with an age larger than maxAge. If this results in
             # points having no emanating edges, remove them as well.
-            _edges = []
+            edges_to_remove = []
+            units_to_remove = set()
 
             for e in self.edges:
-                if e.age <= max_edge_age:
-                    _edges.append(e)
+                if e.age > max_edge_age:
+                    edges_to_remove.append(e)
+                    
+            for e in edges_to_remove:
+                # Edge is too old, remove it
+                e.source.neighbors.discard(e.target)
+                e.target.neighbors.discard(e.source)
+                self._remove_edge(e)
 
-                elif e.age > max_edge_age:
-                    e.source.neighbors.remove(e.target)
-                    e.target.neighbors.remove(e.source)
-
-                    if len(e.source.neighbors) <= 0:
-                        self.units.remove(e.source)
-
-                    if len(e.target.neighbors) <= 0:
-                        self.units.remove(e.target)
-
-            self.edges = _edges
+                # Mark units with no neighbors for removal
+                if len(e.source.neighbors) == 0:
+                    units_to_remove.add(e.source)
+                if len(e.target.neighbors) == 0:
+                    units_to_remove.add(e.target)
+            
+            # Remove isolated units after all edge processing is complete
+            for unit in units_to_remove:
+                self.units.remove(unit)
 
             # 8. If the number of input signals generated so far is an integer
             # multiple of a parameter A, insert a new unit as follows.
@@ -365,26 +559,30 @@ class MiniGNG:
                 # the largest error variable.
                 f = max(q.neighbors, key=lambda u: u.error)
 
-                new_prototype = (q.prototype + f.prototype) * .5
+                new_prototype = (q.prototype + f.prototype) * 0.5
                 r = Unit(new_prototype)
                 self.units.append(r)
 
                 # Insert edges connecting the new unit r with units q and f,
                 # and remove the original edge between q and f.
-                q.neighbors.remove(f)
-                f.neighbors.remove(q)
+                # Remove old edge first to maintain consistency
+                qf_edge = self._get_edge(q, f)
+                if qf_edge:
+                    self._remove_edge(qf_edge)
+                
+                q.neighbors.discard(f)
+                f.neighbors.discard(q)
 
                 q.neighbors.add(r)
                 f.neighbors.add(r)
                 r.neighbors.add(q)
                 r.neighbors.add(f)
+                    
+                self._add_edge(q, r)
+                self._add_edge(f, r)
 
-                self.edges = [e for e in self.edges if not e.connects_units(q, f)]
-                self.edges.append(Edge(q, r))
-                self.edges.append(Edge(f, r))
-
-                q.error = q.error * alpha
-                f.error = f.error * alpha
+                q.error *= alpha
+                f.error *= alpha
                 r.error = q.error
 
             # 9. Decrease all error variables by multiplying them with a constant d.
@@ -392,80 +590,110 @@ class MiniGNG:
                 u.error *= d
 
 
-    def score(self, X, y):
+    def score(self, X: npt.NDArray[np.float64], y: npt.NDArray) -> float:
+        """Calculate accuracy score for classification.
+        
+        Args:
+            X: Test data.
+            y: True labels.
+            
+        Returns:
+            Accuracy score (1.0 - error rate).
+        """
         _, predictions = self.predict(X)
-        diff = predictions - y
-        score = np.count_nonzero(diff) / len(y)
-        return 1 - score
+        if predictions is None:
+            raise ValueError("Model not trained for classification")
+        diff = np.array(predictions) != y
+        score = np.sum(diff) / len(y)
+        return 1.0 - score
 
 
     def network_size_compare(self, node: Unit, size: int) -> int:
         """
-        Checks the size of the network a node belongs to, against the parameter size.
-        Returns 1 if the size of the network is greater than "size", -1 if its lower,
-        and 0 if equal.
+        Check the size of the network a node belongs to against a threshold.
+        
+        Args:
+            node: The unit to start the search from.
+            size: The size threshold to compare against.
+            
+        Returns:
+            1 if network size > size, -1 if network size < size, 0 if equal.
         """
-
-        open_nodes = node.neighbors
-        closed_nodes = set()        
-        closed_nodes.add(node)
+        open_nodes = node.neighbors.copy()
+        closed_nodes = {node}
         n_nodes = 1
 
-        while len(open_nodes) > 0 and n_nodes <= size:
-            closed_nodes = closed_nodes | open_nodes
+        while open_nodes and n_nodes <= size:
+            closed_nodes.update(open_nodes)
             n_nodes = len(closed_nodes)
 
             if n_nodes <= size:
                 aux = set()
                 for n in open_nodes:
-                    aux = aux | {ne for ne in n.neighbors if not ne in closed_nodes}
-                    
+                    aux.update(ne for ne in n.neighbors if ne not in closed_nodes)
                 open_nodes = aux
         
-        if n_nodes < size: return -1
-        elif n_nodes > size: return 1
-        else: return 0
+        if n_nodes < size:
+            return -1
+        elif n_nodes > size:
+            return 1
+        else:
+            return 0
 
-    
     def exists_path(self, a: Unit, b: Unit) -> bool:
         """
-        True if there's a path between a and b, False otherwise.
-        """
-
-        open_nodes = a.neighbors
-        closed_nodes = set()
-        exists = False
-
-        while len(open_nodes) > 0 and not exists:
-            exists = b in open_nodes
-
-            if not exists:
-                closed_nodes = closed_nodes | open_nodes
-                aux = set()
-                for n in open_nodes:
-                    aux = aux | {ne for ne in n.neighbors if not ne in closed_nodes}
-                    
-                open_nodes = aux
+        Check if there's a path between two units in the network.
+        
+        Args:
+            a: Starting unit.
+            b: Target unit.
             
-        return exists
+        Returns:
+            True if a path exists, False otherwise.
+        """
+        if a == b:
+            return True
+            
+        open_nodes = a.neighbors.copy()
+        closed_nodes = {a}
 
+        while open_nodes:
+            if b in open_nodes:
+                return True
+
+            closed_nodes.update(open_nodes)
+            aux = set()
+            for n in open_nodes:
+                aux.update(ne for ne in n.neighbors if ne not in closed_nodes)
+            open_nodes = aux
+            
+        return False
 
     def no_curling(self, a: Unit, b: Unit) -> bool:
         """
-        Checks if connecting units a and b would 'curl' the network into a
-        high-dimensional graph (partially).
+        Check if connecting units a and b would 'curl' the network.
+        
+        Prevents creating high-dimensional graph structures by checking
+        the topology before adding an edge.
+        
+        Args:
+            a: First unit.
+            b: Second unit.
+            
+        Returns:
+            True if connection is allowed (no curling), False otherwise.
         """
-
         bridges = a.neighbors & b.neighbors
         n_bridges = len(bridges)
 
         if n_bridges == 2:
-            # no curling if the two common neighbors are not connected.
-            x, y = bridges
-            return len(x.neighbors.intersection(y.neighbors)) == 0
+            # No curling if the two common neighbors are not connected.
+            bridge_list = list(bridges)
+            x, y = bridge_list[0], bridge_list[1]
+            return len(x.neighbors & y.neighbors) == 0
 
         elif n_bridges == 1:
-            # no curling if there are less than 2 common neighbors between
+            # No curling if there are less than 2 common neighbors between
             # 'a' and 'x', and between 'b' and 'x'.
             [x] = bridges
             xn = x.neighbors
@@ -485,11 +713,15 @@ class MiniGNG:
         return False
 
 
-    def save_vna(self, filename):
+    def save_vna(self, filename: str) -> None:
         """
-        Saves graph (GNG model) to .vna format (which can then be loaded into, e.g., Gephi).
+        Save graph (GNG model) to .vna format.
+        
+        The .vna format can be loaded into visualization tools like Gephi.
+        
+        Args:
+            filename: Path to the output file.
         """
-
         nodes = '*node data\nID name\n'
         nodes += '\n'.join([f'{i} {u.predict() or i}' for i, u in enumerate(self.units)])
 
@@ -504,11 +736,15 @@ class MiniGNG:
             out.write(graph.strip())
 
 
-    def save_gml(self, filename):
+    def save_gml(self, filename: str) -> None:
         """
-        Saves graph (GNG model) to .gml format (which can then be loaded into, e.g., Gephi).
+        Save graph (GNG model) to .gml format.
+        
+        The .gml format can be loaded into visualization tools like Gephi.
+        
+        Args:
+            filename: Path to the output file.
         """
-
         nodes = [
         """
         node
