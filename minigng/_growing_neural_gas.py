@@ -16,6 +16,8 @@ class Unit:
         class_proba: Probability distribution over classes (for classification).
     """
     
+    __slots__ = ('prototype', 'error', 'neighbors', 'id', 'count', 'class_proba')
+    
     def __init__(self, prototype: npt.NDArray[np.float64], error: float = 0.0) -> None:
         self.prototype = prototype
         self.error = error
@@ -62,6 +64,8 @@ class Edge:
         target: Other endpoint of the edge.
         age: Number of signals since this edge was last refreshed.
     """
+    
+    __slots__ = ('source', 'target', 'age')
     
     def __init__(self, source: Unit, target: Unit, age: int = 0) -> None:
         self.source = source
@@ -427,11 +431,18 @@ class MiniGNG:
             self.signal_counter += 1
 
             # 2. Find the nearest unit S1 and the second-nearest unit S2.
+            # Using argpartition for O(n) instead of argsort's O(n log n)
             prototypes = np.array([u.prototype for u in self.units])
             distances = np.linalg.norm(prototypes - signal, axis=1)
-            units_ids = np.argsort(distances)
-
-            unit_a_id, unit_b_id = units_ids[:2]
+            
+            # Get indices of two smallest distances efficiently
+            if len(self.units) > 2:
+                partitioned = np.argpartition(distances, 1)
+                unit_a_id = partitioned[0] if distances[partitioned[0]] < distances[partitioned[1]] else partitioned[1]
+                unit_b_id = partitioned[1] if distances[partitioned[0]] < distances[partitioned[1]] else partitioned[0]
+            else:
+                unit_a_id, unit_b_id = 0, 1 if len(self.units) > 1 else 0
+                
             unit_a: Unit = self.units[unit_a_id]
             unit_b: Unit = self.units[unit_b_id]
             dist = distances[unit_a_id]
