@@ -443,13 +443,14 @@ class MiniGNG:
             
             # Get indices of two smallest distances efficiently
             if len(self.units) >= 2:
-                # Get two units with smallest distances
-                indices = np.argpartition(distances, min(1, len(self.units) - 1))[:2]
+                # argpartition(arr, k) puts k smallest elements in first k+1 positions
+                # We get first 2 positions which contain the 2 smallest distances
+                indices = np.argpartition(distances, 1)[:2]
                 # Sort these two to get nearest (0) and second-nearest (1)
                 sorted_indices = indices[np.argsort(distances[indices])]
                 unit_a_id, unit_b_id = sorted_indices[0], sorted_indices[1]
             else:
-                # Edge case: only one unit
+                # Edge case: only one unit (shouldn't happen in normal operation)
                 unit_a_id = unit_b_id = 0
                 
             unit_a: Unit = self.units[unit_a_id]
