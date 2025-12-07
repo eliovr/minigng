@@ -291,9 +291,16 @@ class MiniGNG:
             AssertionError: If X is not a 2D array.
         """
         assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
-        n = len(X) - 1
-        a = Unit(X[random.randint(0, n)].copy())
-        b = Unit(X[random.randint(0, n)].copy())
+        n = len(X)
+        
+        # Ensure we pick two different samples for initialization
+        if n >= 2:
+            idx_a, idx_b = random.sample(range(n), 2)
+        else:
+            idx_a = idx_b = 0
+            
+        a = Unit(X[idx_a].copy())
+        b = Unit(X[idx_b].copy())
 
         a.neighbors.add(b)
         b.neighbors.add(a)
@@ -359,10 +366,12 @@ class MiniGNG:
             
         prototypes = np.array([u.prototype for u in self.units])
         
-        # Vectorized distance calculation for all samples at once
-        # Shape: (n_samples, n_units)
-        distances = np.linalg.norm(X[:, np.newaxis, :] - prototypes[np.newaxis, :, :], axis=2)
-        unit_assignments = np.argmin(distances, axis=1)
+        # Compute distances in a memory-efficient way
+        # Instead of creating a large 3D array, compute row by row
+        unit_assignments = np.zeros(len(X), dtype=int)
+        for i, x in enumerate(X):
+            dists = np.linalg.norm(prototypes - x, axis=1)
+            unit_assignments[i] = np.argmin(dists)
         
         # Group samples by unit
         groups = {i: [] for i in range(len(self.units))}
@@ -428,7 +437,8 @@ class MiniGNG:
         if self.shuffle or self.sample < 1.0:
             size = len(X)
             n_samples = int(size * self.sample) if self.sample < 1.0 else size
-            indices = np.random.choice(size, n_samples, replace=False)
+            # Use permutation for efficient shuffling/sampling
+            indices = np.random.permutation(size)[:n_samples]
             signals = X[indices]
 
         # Process each signal (note: prototypes must be recreated each iteration
