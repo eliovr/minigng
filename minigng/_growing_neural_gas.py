@@ -143,6 +143,15 @@ class MiniGNG:
         self.signal_counter: int = 0
         self.classes = None
 
+        # A single contiguous (n_units, dim) matrix holding every unit's
+        # prototype. Each Unit.prototype is a *view* into a row of this array,
+        # so `move_towards` updates the matrix in place and the nearest-unit
+        # search in `partial_fit` reads it directly instead of rebuilding a
+        # fresh array from a Python list on every signal. Rebuilt only when the
+        # set of units changes (units added/removed), which is far rarer than
+        # the per-signal hot loop.
+        self._protos: np.ndarray | None = None
+
 
     def get_params(self, deep: bool = True) -> dict[str, int | float | bool]:
         """
@@ -207,6 +216,15 @@ class MiniGNG:
         b.neighbors.add(a)
         self.units = [a, b]
         self.edges.append(Edge(a, b))
+        self._rebuild_protos()
+
+
+    def _rebuild_protos(self) -> None:
+        """Rebuild the shared prototype matrix and rebind each unit's prototype
+        to a view into it. Call after the set of units changes."""
+        self._protos = np.array([u.prototype for u in self.units])
+        for i, u in enumerate(self.units):
+            u.prototype = self._protos[i]
 
 
     def predict(self, X: np.ndarray) -> tuple[list[int], list[str | int] | None]:
@@ -322,14 +340,17 @@ class MiniGNG:
             self.signal_counter += 1
 
             # 2. Find the nearest unit S1 and the second-nearest unit S2.
-            prototypes = np.array([u.prototype for u in self.units])
-            distance = np.linalg.norm(prototypes - signal, axis=1)
-            units_ids = np.argsort(distance)
+            # Rank on squared distance (monotonic in distance, so the ordering
+            # is identical) to avoid the per-signal sqrt, and use argpartition
+            # (O(n)) instead of a full argsort (O(n log n)) since only the two
+            # nearest units are needed. The partition guarantees position 0 is
+            # the nearest and position 1 the second-nearest.
+            diff = self._protos - signal
+            sq_dist = np.einsum('ij,ij->i', diff, diff)
+            unit_a_id, unit_b_id = np.argpartition(sq_dist, 1)[:2]
 
-            unit_a_id, unit_b_id = units_ids[:2]
             unit_a: Unit = self.units[unit_a_id]
             unit_b: Unit = self.units[unit_b_id]
-            dist = distance[unit_a_id]
 
             ab_edge = None
 
@@ -344,7 +365,7 @@ class MiniGNG:
 
             # 4. Add the squared distance between the input signal and
             # the nearest unit in input space to a local counter variable.
-            unit_a.error += dist * dist
+            unit_a.error += sq_dist[unit_a_id]
 
             # 5. Move S1 and its direct topological neighbors towards E by
             # fractions Eb and En, respectively, of the total distance.
@@ -365,6 +386,7 @@ class MiniGNG:
             # 7. Remove edges with an age larger than maxAge. If this results in
             # points having no emanating edges, remove them as well.
             _edges = []
+            units_removed = False
 
             for e in self.edges:
                 if e.age <= max_edge_age:
@@ -376,11 +398,18 @@ class MiniGNG:
 
                     if len(e.source.neighbors) <= 0:
                         self.units.remove(e.source)
+                        units_removed = True
 
                     if len(e.target.neighbors) <= 0:
                         self.units.remove(e.target)
+                        units_removed = True
 
             self.edges = _edges
+
+            # Rebind prototype views: removing units leaves the shared matrix
+            # out of sync with self.units.
+            if units_removed:
+                self._rebuild_protos()
 
             # 8. If the number of input signals generated so far is an integer
             # multiple of a parameter A, insert a new unit as follows.
@@ -414,6 +443,9 @@ class MiniGNG:
                 q.error = q.error * alpha
                 f.error = f.error * alpha
                 r.error = q.error
+
+                # Rebind prototype views now that r has been appended.
+                self._rebuild_protos()
 
             # 9. Decrease all error variables by multiplying them with a constant d.
             for u in self.units:
