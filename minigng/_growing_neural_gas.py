@@ -1,5 +1,4 @@
 import numpy as np
-import random
 
 
 class Unit:
@@ -17,7 +16,7 @@ class Unit:
 
         self.id = -1
         self.count = 0
-        self.class_proba: dict[str, float] =  None
+        self.class_proba: dict[str, float] | None = None
 
     def move_towards(self, vector, eps):
         self.prototype += (vector - self.prototype) * eps
@@ -197,9 +196,12 @@ class MiniGNG:
 
     def init_model(self, X: np.ndarray) -> None:
         assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
-        n = len(X) - 1
-        a = Unit(X[random.randint(0, n)])
-        b = Unit(X[random.randint(0, n)])
+        assert len(X) >= 2, f'Need at least 2 samples to initialize, got {len(X)}'
+        # Two distinct seeds: drawing with replacement could pick the same row
+        # twice and create two coincident units.
+        i, j = np.random.choice(len(X), 2, replace=False)
+        a = Unit(X[i])
+        b = Unit(X[j])
 
         a.neighbors.add(b)
         b.neighbors.add(a)
@@ -219,14 +221,14 @@ class MiniGNG:
             Classes is None when not used for classification (calling `fit` without `y`).
         """
         assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
-        if len(self.units) == 0:
-            return None
 
         # Predict only against units that training points were assigned to
         # (count > 0), but keep each unit's index in self.units: argmin indexes
         # the filtered array, so the index must be mapped back to self.units
         # for the returned ids and labels to line up with the full unit list.
         live = [(i, u) for i, u in enumerate(self.units) if u.count > 0]
+        if not live:
+            return [], None
         prototypes = np.array([u.prototype for _, u in live])
         unit_ids = []
         labels = []

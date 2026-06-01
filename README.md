@@ -18,9 +18,10 @@ import pandas as pd
 import numpy as np
 from minigng import MiniGNG
 
-df = pd.read_csv("/path/to/iris.csv", header=1)
-X = df.drop(df.columns[-1], 1).to_numpy()
-y = df[4].to_numpy()
+df = pd.read_csv("/path/to/iris.csv", header=None)
+# Assuming labels are in the last column.
+X = df.iloc[:, :-1].to_numpy(dtype=np.float32)
+y = df.iloc[:, -1].to_numpy()
 
 # For clustering just provide 'X'.
 gng = MiniGNG(max_units=40, n_epochs=30)
@@ -32,10 +33,11 @@ gng = MiniGNG(max_units=40, n_epochs=30)
 gng.fit(X, y)
 gng.save_gml('iris-classification.gml')
 
-# For online training.
-gng = MiniGNG(max_units=40, n_epochs=30)
-for x in X:
-    gng.partial_fit(X)
+# For online training, feed data as it arrives via partial_fit. Each call
+# runs a single pass over the given batch (n_epochs is only used by fit).
+gng = MiniGNG(max_units=40)
+for batch in np.array_split(X, 10):
+    gng.partial_fit(batch)
 ```
 
 ## Screenshots
