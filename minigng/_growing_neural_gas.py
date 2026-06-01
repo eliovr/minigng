@@ -227,6 +227,21 @@ class MiniGNG:
             u.prototype = self._protos[i]
 
 
+    @staticmethod
+    def _nearest(X: np.ndarray, prototypes: np.ndarray) -> np.ndarray:
+        """Index of the nearest prototype for each row of X.
+
+        Computes squared distances by looping over the (few) prototypes and
+        vectorizing over the (many) points, instead of a Python loop over X.
+        Ranking on squared distance matches Euclidean ranking exactly.
+        """
+        sq_dists = np.empty((len(X), len(prototypes)))
+        for j, p in enumerate(prototypes):
+            diff = X - p
+            sq_dists[:, j] = np.einsum('ij,ij->i', diff, diff)
+        return np.argmin(sq_dists, axis=1)
+
+
     def predict(self, X: np.ndarray) -> tuple[list[int], list[str | int] | None]:
         """Returns the unit id to which each data point is closest to and, if
         used for classification, the class predicted by each unit.
@@ -248,15 +263,12 @@ class MiniGNG:
         if not live:
             return [], None
         prototypes = np.array([u.prototype for _, u in live])
-        unit_ids = []
-        labels = []
 
-        for x in X:
-            dists = np.linalg.norm(x - prototypes, axis=1)
-            unit_id, unit = live[np.argmin(dists)]
-            unit_ids.append(unit_id)
-            if unit.class_proba:
-                labels.append(unit.predict())
+        nearest = self._nearest(X, prototypes)
+        unit_ids = [live[k][0] for k in nearest]
+        labels = [
+            live[k][1].predict() for k in nearest if live[k][1].class_proba
+        ]
 
         return unit_ids, labels or None
 
@@ -271,10 +283,8 @@ class MiniGNG:
         groups = {u.id: [] for u in self.units}
         prototypes = np.array([u.prototype for u in self.units])
 
-        for i, x in enumerate(X):
-            dists = np.linalg.norm(x - prototypes, axis=1)
-            unit_id = np.argmin(dists)
-            groups[unit_id].append(i)
+        for i, unit_id in enumerate(self._nearest(X, prototypes)):
+            groups[int(unit_id)].append(i)
 
         if y is not None:
             self.classes = np.unique(y)
@@ -385,14 +395,14 @@ class MiniGNG:
 
             # 7. Remove edges with an age larger than maxAge. If this results in
             # points having no emanating edges, remove them as well.
-            _edges = []
-            units_removed = False
+            # Most signals expire no edge, so only rebuild the edge list when
+            # there is at least one to drop instead of reallocating every time.
+            expired = [e for e in self.edges if e.age > max_edge_age]
 
-            for e in self.edges:
-                if e.age <= max_edge_age:
-                    _edges.append(e)
+            if expired:
+                units_removed = False
 
-                elif e.age > max_edge_age:
+                for e in expired:
                     e.source.neighbors.remove(e.target)
                     e.target.neighbors.remove(e.source)
 
@@ -404,12 +414,13 @@ class MiniGNG:
                         self.units.remove(e.target)
                         units_removed = True
 
-            self.edges = _edges
+                expired_set = set(expired)
+                self.edges = [e for e in self.edges if e not in expired_set]
 
-            # Rebind prototype views: removing units leaves the shared matrix
-            # out of sync with self.units.
-            if units_removed:
-                self._rebuild_protos()
+                # Rebind prototype views: removing units leaves the shared
+                # matrix out of sync with self.units.
+                if units_removed:
+                    self._rebuild_protos()
 
             # 8. If the number of input signals generated so far is an integer
             # multiple of a parameter A, insert a new unit as follows.
@@ -564,12 +575,16 @@ class MiniGNG:
         Saves graph (GNG model) to .vna format (which can then be loaded into, e.g., Gephi).
         """
 
+        # Map each unit to its index once: list.index() per edge would be
+        # O(n_edges * n_units).
+        index = {u: i for i, u in enumerate(self.units)}
+
         nodes = '*node data\nID name\n'
         nodes += '\n'.join([f'{i} {u.predict() or i}' for i, u in enumerate(self.units)])
 
         edges = '*tie data\nfrom to strength\n'
         edges += '\n'.join([
-            f'{self.units.index(e.source)} {self.units.index(e.target)} 1'
+            f'{index[e.source]} {index[e.target]} 1'
             for e in self.edges])
 
         graph = f'{nodes}\n{edges}'
@@ -582,6 +597,10 @@ class MiniGNG:
         """
         Saves graph (GNG model) to .gml format (which can then be loaded into, e.g., Gephi).
         """
+
+        # Map each unit to its index once: list.index() per edge would be
+        # O(n_edges * n_units).
+        index = {u: i for i, u in enumerate(self.units)}
 
         nodes = [
         """
@@ -599,7 +618,7 @@ class MiniGNG:
           source {s}
           target {t}
         ]
-        """.format(s=self.units.index(e.source), t=self.units.index(e.target)) for e in self.edges]
+        """.format(s=index[e.source], t=index[e.target]) for e in self.edges]
 
         graph = """
         graph

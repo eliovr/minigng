@@ -26,21 +26,24 @@ def make_blobs(n_samples, dim, n_centers, seed=0):
 
 
 def bench(name, X, repeats=3, **params):
-    times = []
+    fit_times, pred_times = [], []
     for _ in range(repeats):
         np.random.seed(0)  # fix sampling/shuffling so each run is comparable
         gng = MiniGNG(**params)
         t0 = time.perf_counter()
         gng.fit(X)
-        times.append(time.perf_counter() - t0)
-    best = min(times)
+        fit_times.append(time.perf_counter() - t0)
+        t0 = time.perf_counter()
+        gng.predict(X)
+        pred_times.append(time.perf_counter() - t0)
+    fit_best, pred_best = min(fit_times), min(pred_times)
     n_signals = params["n_epochs"] * len(X)
     print(
-        f"{name:<28} best={best:7.3f}s  median={np.median(times):7.3f}s  "
-        f"units={len(gng.units):3d}  "
-        f"{n_signals / best:>10,.0f} signals/s"
+        f"{name:<28} fit={fit_best:7.3f}s  "
+        f"({n_signals / fit_best:>9,.0f} sig/s)  "
+        f"predict={pred_best * 1e3:7.2f}ms  units={len(gng.units):3d}"
     )
-    return best
+    return fit_best
 
 
 if __name__ == "__main__":
