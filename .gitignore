@@ -4,6 +4,7 @@ __pycache__/
 *.gml
 *.egg-info/
 .pytest_cache/
+.coverage
 pyvenv.cfg
 
 bin/
