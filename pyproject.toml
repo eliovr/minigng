@@ -24,6 +24,12 @@ example = [
     "pydot>=3.0.4",
     "scipy>=1.15.2",
 ]
+test = [
+    "pytest>=8.0",
+]
 
 [tool.setuptools]
 packages = ["minigng"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

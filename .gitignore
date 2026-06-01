@@ -2,6 +2,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.gml
+*.egg-info/
+.pytest_cache/
 pyvenv.cfg
 
 bin/
