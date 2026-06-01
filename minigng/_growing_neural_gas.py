@@ -209,10 +209,10 @@ class MiniGNG:
 
     def predict(self, X: np.ndarray) -> tuple[list[int], list[str | int] | None]:
         """Returns the unit id to which each data point is closest to and, if
-        used flor classification, the class predicted by each unit.
+        used for classification, the class predicted by each unit.
 
         Args:
-            X (np.ndarray): Data to predecict.
+            X (np.ndarray): Data to predict.
 
         Returns:
             tuple[list[int], list[str | int] | None]: Unit IDs and classes.
@@ -222,17 +222,19 @@ class MiniGNG:
         if len(self.units) == 0:
             return None
 
-        groups = {i: [] for i, _ in enumerate(self.units)}
-        prototypes = np.array([u.prototype for u in self.units if u.count > 0])
+        # Predict only against units that training points were assigned to
+        # (count > 0), but keep each unit's index in self.units: argmin indexes
+        # the filtered array, so the index must be mapped back to self.units
+        # for the returned ids and labels to line up with the full unit list.
+        live = [(i, u) for i, u in enumerate(self.units) if u.count > 0]
+        prototypes = np.array([u.prototype for _, u in live])
         unit_ids = []
-        labels = []     
+        labels = []
 
-        for i, x in enumerate(X):
+        for x in X:
             dists = np.linalg.norm(x - prototypes, axis=1)
-            unit_id = np.argmin(dists)
-            groups[unit_id].append(i)
+            unit_id, unit = live[np.argmin(dists)]
             unit_ids.append(unit_id)
-            unit = self.units[unit_id]
             if unit.class_proba:
                 labels.append(unit.predict())
 
