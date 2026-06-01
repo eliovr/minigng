@@ -308,7 +308,13 @@ class MiniGNG:
         if self.shuffle or self.sample < 1.0:
             size = len(X)
             n_samples = int(size * self.sample) if self.sample < 1.0 else size
-            signals = X[np.random.choice(size, n_samples)]
+            # Sample without replacement: shuffling should permute the data,
+            # and subsampling should pick distinct points (replace=True would
+            # drop ~37% of points and duplicate others every epoch).
+            indices = np.random.choice(size, n_samples, replace=False)
+            if not self.shuffle:
+                indices.sort()
+            signals = X[indices]
 
         for signal in signals:
             self.signal_counter += 1
@@ -412,11 +418,25 @@ class MiniGNG:
                 u.error *= d
 
 
-    def score(self, X, y):
+    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+        """Mean accuracy of the predicted classes against the true labels.
+
+        Requires a model fit for classification (i.e., `fit(X, y)`).
+
+        Args:
+            X (np.ndarray): Data to predict.
+            y (np.ndarray): True labels.
+
+        Returns:
+            float: Fraction of points whose predicted class matches y, in [0, 1].
+        """
         _, predictions = self.predict(X)
-        diff = predictions - y
-        score = np.count_nonzero(diff) / len(y)
-        return 1 - score
+        if predictions is None:
+            raise ValueError(
+                'score requires a model fit for classification; '
+                'call fit(X, y) before score.'
+            )
+        return float(np.mean(np.asarray(predictions) == y))
 
 
     def network_size_compare(self, node: Unit, size: int) -> int:
