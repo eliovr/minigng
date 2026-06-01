@@ -1,4 +1,3 @@
-from typing import Any
 import numpy as np
 import random
 
@@ -274,8 +273,20 @@ class MiniGNG:
     def fit_predict(
             self,
             X: np.ndarray,
-            return_unit_ids: bool = False) -> list[Any] | tuple[list[Any], list[int]]:
-        return self.fit(X).predict(X, return_unit_ids)
+            y: np.ndarray = None) -> tuple[list[int], list[str | int] | None]:
+        """Fit the model on X and return the predictions for X.
+
+        Equivalent to calling `fit(X, y)` followed by `predict(X)`.
+
+        Args:
+            X (np.ndarray): Data to fit and predict.
+            y (np.ndarray, optional): Labels, for classification.
+
+        Returns:
+            tuple[list[int], list[str | int] | None]: Unit IDs and classes
+            (see `predict`). Classes is None when fit without `y`.
+        """
+        return self.fit(X, y).predict(X)
 
 
     def partial_fit(self, X: np.ndarray):
