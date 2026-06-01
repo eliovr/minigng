@@ -5,7 +5,14 @@ import random
 
 class Unit:
     def __init__(self, prototype: np.ndarray, error: float = .0):
-        self.prototype = prototype
+        # Copy so the unit owns its prototype: rows of the training data X
+        # are views, and `move_towards` updates the prototype in place, which
+        # would otherwise mutate the caller's X. Preserve the input's float
+        # dtype (so float32 stays float32) but cast integer inputs up to float,
+        # since the in-place update needs a floating-point array.
+        arr = np.asarray(prototype)
+        dtype = arr.dtype if np.issubdtype(arr.dtype, np.floating) else float
+        self.prototype = arr.astype(dtype, copy=True)
         self.error = error
         self.neighbors: set[Unit] = set()
 
