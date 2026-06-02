@@ -11,7 +11,7 @@ version = "0.0.3"
 description = "A minimum implementation of the Growing Neural Gas"
 license = {text = "BSD-3-Clause"}
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.2.3",
 ]
