@@ -7,7 +7,7 @@ name = "minigng"
 authors = [
     {name = "Elio Ventocilla"},
 ]
-version = "0.0.3"
+version = "0.0.4"
 description = "A minimum implementation of the Growing Neural Gas"
 license = {text = "BSD-3-Clause"}
 readme = "README.md"
