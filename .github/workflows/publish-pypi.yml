@@ -1,0 +1,24 @@
+name: Publish to PyPI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: pypi
+      url: https://pypi.org/p/minigng
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build distribution
+        run: |
+          uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
