@@ -137,11 +137,13 @@ class MiniGNG:
         self.max_size_connect = max_size_connect
         self.shuffle = shuffle
         self.sample = sample
+        self._validate_params()
         
         self.units: list[Unit] = []
         self.edges: list[Edge] = []
         self.signal_counter: int = 0
         self.classes = None
+        self._n_features: int | None = None
 
         # A single contiguous (n_units, dim) matrix holding every unit's
         # prototype. Each Unit.prototype is a *view* into a row of this array,
@@ -200,12 +202,84 @@ class MiniGNG:
         for key, sub_params in nested_params.items():
             valid_params[key].set_params(**sub_params)
 
+        self._validate_params()
         return self
 
 
+    def _validate_params(self) -> None:
+        validators = (
+            ('n_epochs', self.n_epochs, lambda v: isinstance(v, int) and v >= 1,
+             'n_epochs must be an integer >= 1'),
+            ('sigma', self.sigma, lambda v: isinstance(v, int) and v >= 1,
+             'sigma must be an integer >= 1'),
+            ('max_units', self.max_units, lambda v: isinstance(v, int) and v >= 2,
+             'max_units must be an integer >= 2'),
+            ('max_edge_age', self.max_edge_age, lambda v: isinstance(v, int) and v >= 0,
+             'max_edge_age must be an integer >= 0'),
+            ('max_size_connect', self.max_size_connect, lambda v: isinstance(v, int),
+             'max_size_connect must be an integer'),
+            ('shuffle', self.shuffle, lambda v: isinstance(v, bool),
+             'shuffle must be a boolean'),
+            ('untangle', self.untangle, lambda v: isinstance(v, bool),
+             'untangle must be a boolean'),
+            ('sample', self.sample, lambda v: 0 < v <= 1,
+             'sample must be in the interval (0, 1]'),
+            ('eps_b', self.eps_b, lambda v: v > 0, 'eps_b must be > 0'),
+            ('eps_n', self.eps_n, lambda v: v >= 0, 'eps_n must be >= 0'),
+            ('alpha', self.alpha, lambda v: 0 < v <= 1, 'alpha must be in the interval (0, 1]'),
+            ('d', self.d, lambda v: 0 < v <= 1, 'd must be in the interval (0, 1]'),
+        )
+        for _, value, validator, message in validators:
+            if not validator(value):
+                raise ValueError(message)
+
+
+    @staticmethod
+    def _as_2d_array(X: np.ndarray, *, min_samples: int = 1) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim != 2:
+            raise ValueError(f'Expected array of 2 dimensions, got {X.ndim}')
+        if len(X) < min_samples:
+            raise ValueError(f'Need at least {min_samples} samples, got {len(X)}')
+        return X
+
+
+    def _check_feature_count(self, X: np.ndarray, *, reset: bool = False) -> np.ndarray:
+        X = self._as_2d_array(X)
+        n_features = X.shape[1]
+        if reset or self._n_features is None:
+            self._n_features = n_features
+        elif n_features != self._n_features:
+            raise ValueError(
+                f'Expected {self._n_features} features, got {n_features}'
+            )
+        return X
+
+
+    def _reset_model(self) -> None:
+        self.units = []
+        self.edges = []
+        self.signal_counter = 0
+        self.classes = None
+        self._protos = None
+        self._n_features = None
+
+
+    @staticmethod
+    def _display_label(unit: Unit, fallback: int) -> str | int:
+        label = unit.predict()
+        return fallback if label is None else label
+
+
+    @staticmethod
+    def _quote_text(value: str | int) -> str:
+        escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
+
+
     def init_model(self, X: np.ndarray) -> None:
-        assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
-        assert len(X) >= 2, f'Need at least 2 samples to initialize, got {len(X)}'
+        X = self._as_2d_array(X, min_samples=2)
+        self._n_features = X.shape[1]
         # Two distinct seeds: drawing with replacement could pick the same row
         # twice and create two coincident units.
         i, j = np.random.choice(len(X), 2, replace=False)
@@ -253,7 +327,11 @@ class MiniGNG:
             tuple[list[int], list[str | int] | None]: Unit IDs and classes.
             Classes is None when not used for classification (calling `fit` without `y`).
         """
-        assert X.ndim == 2, f'Expected array of 2 dimensions, got {X.ndim}'
+        X = self._as_2d_array(X)
+        if self._n_features is not None and X.shape[1] != self._n_features:
+            raise ValueError(
+                f'Expected {self._n_features} features, got {X.shape[1]}'
+            )
 
         # Predict only against units that training points were assigned to
         # (count > 0), but keep each unit's index in self.units: argmin indexes
@@ -274,6 +352,17 @@ class MiniGNG:
 
 
     def fit(self, X: np.ndarray, y: np.ndarray = None) -> 'MiniGNG':
+        X = self._check_feature_count(X, reset=True)
+        if y is not None:
+            y = np.asarray(y)
+            if len(y) != len(X):
+                raise ValueError(
+                    f'Expected X and y to contain the same number of samples, got {len(X)} and {len(y)}'
+                )
+
+        self._reset_model()
+        self._n_features = X.shape[1]
+
         # Train GNG
         for _ in range(0, self.n_epochs):
             self.partial_fit(X)
@@ -321,7 +410,8 @@ class MiniGNG:
         return self.fit(X, y).predict(X)
 
 
-    def partial_fit(self, X: np.ndarray):
+    def partial_fit(self, X: np.ndarray) -> 'MiniGNG':
+        X = self._check_feature_count(X, reset=not self.units)
         if len(self.units) == 0:
             self.init_model(X)
 
@@ -462,6 +552,8 @@ class MiniGNG:
             for u in self.units:
                 u.error *= d
 
+        return self
+
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         """Mean accuracy of the predicted classes against the true labels.
@@ -475,6 +567,11 @@ class MiniGNG:
         Returns:
             float: Fraction of points whose predicted class matches y, in [0, 1].
         """
+        y = np.asarray(y)
+        if len(y) != len(X):
+            raise ValueError(
+                f'Expected X and y to contain the same number of samples, got {len(X)} and {len(y)}'
+            )
         _, predictions = self.predict(X)
         if predictions is None:
             raise ValueError(
@@ -580,7 +677,10 @@ class MiniGNG:
         index = {u: i for i, u in enumerate(self.units)}
 
         nodes = '*node data\nID name\n'
-        nodes += '\n'.join([f'{i} {u.predict() or i}' for i, u in enumerate(self.units)])
+        nodes += '\n'.join([
+            f'{i} {self._quote_text(self._display_label(u, i))}'
+            for i, u in enumerate(self.units)
+        ])
 
         edges = '*tie data\nfrom to strength\n'
         edges += '\n'.join([
@@ -589,7 +689,7 @@ class MiniGNG:
 
         graph = f'{nodes}\n{edges}'
 
-        with open(filename, 'w') as out:
+        with open(filename, 'w', encoding='utf-8') as out:
             out.write(graph.strip())
 
 
@@ -609,7 +709,8 @@ class MiniGNG:
           id {i}
           label {label}
         ]
-        """.format(i=i, label=u.predict() or i) for i, u in enumerate(self.units)]
+        """.format(i=i, label=self._quote_text(self._display_label(u, i)))
+        for i, u in enumerate(self.units)]
 
         edges = [
         """
@@ -628,5 +729,5 @@ class MiniGNG:
         ]
         """.format(ns='\n'.join(nodes), es='\n'.join(edges))
 
-        with open(filename, 'w') as out:
+        with open(filename, 'w', encoding='utf-8') as out:
             out.write(graph)
