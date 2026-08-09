@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/eliovr/minigng/compare/v0.1.0...v0.1.1) (2026-08-09)
+
+
+### Bug Fixes
+
+* **ci:** inline PyPI publish job to fix trusted publishing ([#18](https://github.com/eliovr/minigng/issues/18)) ([d31596e](https://github.com/eliovr/minigng/commit/d31596e2ecc290cbdb137e20c2d6a58ca039da5a))
+
 ## [0.1.0](https://github.com/eliovr/minigng/compare/v0.0.3...v0.1.0) (2026-08-09)
 
 
