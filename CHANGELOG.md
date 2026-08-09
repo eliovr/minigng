@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0](https://github.com/eliovr/minigng/compare/v0.0.3...v0.1.0) (2026-08-09)
+
+
+### Features
+
+* improve MiniGNG API safety, reset semantics, and export robustness ([#15](https://github.com/eliovr/minigng/issues/15)) ([d0124de](https://github.com/eliovr/minigng/commit/d0124ded181e5c8e6d0440199dc2a2ca58359305))
+
+
+### Performance Improvements
+
+* **gng:** share prototype matrix and rank on squared distance ([#11](https://github.com/eliovr/minigng/issues/11)) ([932ea69](https://github.com/eliovr/minigng/commit/932ea690215a3b612da309ac70f6fbd3c0840c90))
+* **gng:** vectorize predict/fit assignment and skip per-signal edge rebuild ([#13](https://github.com/eliovr/minigng/issues/13)) ([f9be941](https://github.com/eliovr/minigng/commit/f9be94190541158de75a04073303f5d8982197b3))
+
 ## [0.0.3](https://github.com/eliovr/minigng/compare/v0.0.2...v0.0.3) (2026-06-01)
 
 
