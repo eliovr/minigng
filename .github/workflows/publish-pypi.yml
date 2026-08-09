@@ -20,6 +20,5 @@ jobs:
       - uses: astral-sh/setup-uv@v9
       - name: Build distribution
         run: |
-          uv python install 3.13
           uv build
       - uses: pypa/gh-action-pypi-publish@release/v1
