@@ -7,8 +7,14 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: pypi
+      url: https://pypi.org/p/minigng
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9
@@ -16,22 +22,4 @@ jobs:
         run: |
           uv python install 3.13
           uv build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      id-token: write
-    environment:
-      name: pypi
-      url: https://pypi.org/p/minigng
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
