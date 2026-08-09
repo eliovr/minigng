@@ -24,7 +24,17 @@ jobs:
   publish-pypi:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/publish-pypi.yml
+    environment:
+      name: pypi
+      url: https://pypi.org/p/minigng
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build distribution
+        run: |
+          uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
