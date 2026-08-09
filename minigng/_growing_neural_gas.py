@@ -85,7 +85,7 @@ class MiniGNG:
         n_epochs : int (default=50)
             Number of epochs (i.e., runs over the entire data) before stopping.
 
-        sigma : float (default=100)
+        sigma : int (default=100)
             How many signals before a new units is added.
 
         max_units : int (default=100)
@@ -352,6 +352,7 @@ class MiniGNG:
 
 
     def fit(self, X: np.ndarray, y: np.ndarray = None) -> 'MiniGNG':
+        self._reset_model()
         X = self._check_feature_count(X, reset=True)
         if y is not None:
             y = np.asarray(y)
@@ -359,9 +360,6 @@ class MiniGNG:
                 raise ValueError(
                     f'Expected X and y to contain the same number of samples, got {len(X)} and {len(y)}'
                 )
-
-        self._reset_model()
-        self._n_features = X.shape[1]
 
         # Train GNG
         for _ in range(0, self.n_epochs):

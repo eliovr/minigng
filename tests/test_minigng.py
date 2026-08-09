@@ -73,14 +73,13 @@ def test_fit_resets_existing_model_state(data):
     g = MiniGNG(max_units=20, n_epochs=2)
     np.random.seed(0)
     g.fit(X)
-    first_units = len(g.units)
+    first_signal_counter = g.signal_counter
     g.signal_counter = 999
     np.random.seed(1)
     g.fit(X[:100])
+    assert first_signal_counter == g.n_epochs * len(X)
     assert g.signal_counter == g.n_epochs * 100
     assert 0 < len(g.units) <= g.max_units
-    assert len(g.units) != 0
-    assert first_units >= 0
 
 
 # --- #4: predict unit ids align with self.units ----------------------------
