@@ -68,6 +68,20 @@ def test_fit_predict_matches_fit_then_predict(data):
     assert np.array_equal(l1, l2)
 
 
+def test_fit_resets_existing_model_state(data):
+    X, _ = data
+    g = MiniGNG(max_units=20, n_epochs=2)
+    np.random.seed(0)
+    g.fit(X)
+    first_signal_counter = g.signal_counter
+    g.signal_counter = 999
+    np.random.seed(1)
+    g.fit(X[:100])
+    assert first_signal_counter == g.n_epochs * len(X)
+    assert g.signal_counter == g.n_epochs * 100
+    assert 0 < len(g.units) <= g.max_units
+
+
 # --- #4: predict unit ids align with self.units ----------------------------
 
 def test_predict_unit_ids_align_with_dead_unit(data):
@@ -115,6 +129,12 @@ def test_score_requires_classification(data):
         g.score(X, np.zeros(len(X)))
 
 
+def test_score_requires_matching_target_length(data):
+    X, y = data
+    with pytest.raises(ValueError, match='same number of samples'):
+        fitted(X, y).score(X, y[:-1])
+
+
 # --- #5 / init / seeding ---------------------------------------------------
 
 def test_init_model_seeds_two_distinct_units(data):
@@ -127,8 +147,15 @@ def test_init_model_seeds_two_distinct_units(data):
 
 
 def test_init_model_requires_two_samples():
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match='at least 2 samples'):
         MiniGNG().init_model(np.zeros((1, 4)))
+
+
+def test_reject_invalid_parameters():
+    with pytest.raises(ValueError, match='sample must be in the interval'):
+        MiniGNG(sample=0)
+    with pytest.raises(ValueError, match='max_units must be an integer >= 2'):
+        MiniGNG(max_units=1)
 
 
 def test_fit_is_reproducible_with_seed(data):
@@ -157,8 +184,42 @@ def test_partial_fit_online_batches(data):
     np.random.seed(0)
     g = MiniGNG(max_units=40)
     for batch in np.array_split(X, 10):
-        g.partial_fit(batch)
+        assert g.partial_fit(batch) is g
     assert len(g.units) >= 2
+
+
+def test_reject_inconsistent_feature_counts(data):
+    X, y = data
+    g = fitted(X, y)
+    with pytest.raises(ValueError, match='Expected 4 features, got 3'):
+        g.predict(np.zeros((3, 3)))
+    with pytest.raises(ValueError, match='Expected 4 features, got 3'):
+        g.partial_fit(np.zeros((10, 3)))
+
+
+def test_fit_requires_matching_target_length(data):
+    X, y = data
+    with pytest.raises(ValueError, match='same number of samples'):
+        MiniGNG().fit(X, y[:-1])
+
+
+def test_export_quotes_string_labels(tmp_path):
+    X = np.random.RandomState(0).rand(150, 4).astype(np.float32)
+    y = np.array(['class "A"', 'class B', 'class C'])[
+        np.random.RandomState(1).randint(0, 3, 150)
+    ]
+    g = fitted(X, y)
+    gml_path = tmp_path / 'graph.gml'
+    vna_path = tmp_path / 'graph.vna'
+
+    g.save_gml(gml_path)
+    g.save_vna(vna_path)
+
+    gml = gml_path.read_text(encoding='utf-8')
+    vna = vna_path.read_text(encoding='utf-8')
+    assert 'label "class' in gml
+    assert '\\"A\\"' in gml
+    assert '"class B"' in vna
 
 
 def test_edges_reference_existing_units(data):
